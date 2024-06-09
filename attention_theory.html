@@ -3,7 +3,7 @@
 <html lang="en">
 <head><meta charset="utf-8"/>
 <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
-<title>transformer</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
+<title>attention_theory</title><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.1.10/require.min.js"></script>
 <style type="text/css">
     pre { line-height: 125%; }
 td.linenos .normal { color: inherit; background-color: transparent; padding-left: 5px; padding-right: 5px; }
@@ -7530,7 +7530,8 @@ a.anchor-link {
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h1 id="Transformer-Architecture">Transformer Architecture<a class="anchor-link" href="#Transformer-Architecture">¶</a></h1><p>Based on the paper by Vaswani et. al (<a href="https://arxiv.org/pdf/1706.03762">https://arxiv.org/pdf/1706.03762</a>).</p>
+<h1 id="Transformer-Architecture">Transformer Architecture<a class="anchor-link" href="#Transformer-Architecture">¶</a></h1><p>D. Kofler, Project II: Concept Study, AppDS, SS2024</p>
+<p>Based on the paper by Vaswani et. al (<a href="https://arxiv.org/pdf/1706.03762">https://arxiv.org/pdf/1706.03762</a>).</p>
 </div>
 </div>
 </div>
@@ -7729,7 +7730,9 @@ token ids: Tensor([[ 7,  4, 11, 11, 14]])
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">C</span> <span class="o">=</span> <span class="mi">3</span>  <span class="c1"># 3 embedding dimensions</span>
 
-<span class="n">E_T</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
+<span class="c1"># random normal creates a tensor with values drawn from a uniform distribution, by default from -1 to 1</span>
+<span class="c1"># the shape argument defines the tensor dimensions</span>
+<span class="n">E_T</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">vocab_size</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
 <span class="n">E_T</span>
 </pre></div>
 </div>
@@ -7743,33 +7746,33 @@ token ids: Tensor([[ 7,  4, 11, 11, 14]])
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[-1.4983e+00, -6.9834e-01, -1.8354e-01],
-        [ 8.8283e-01, -2.0784e+00, -8.3657e-01],
-        [ 1.1916e-01,  8.1428e-01,  7.3418e-01],
-        [-7.2469e-01, -6.0759e-01, -2.6199e-01],
-        [-2.3725e-01, -4.4478e-01, -3.4482e-01],
-        [-1.6788e+00, -4.0808e-01, -6.2272e-02],
-        [ 1.1730e+00, -4.2150e-01, -1.1755e+00],
-        [-1.2508e+00,  2.4636e-02,  1.1724e+00],
-        [-1.8346e+00, -1.0839e+00, -1.3013e+00],
-        [-7.1448e-01,  6.3896e-01,  6.2323e-01],
-        [-4.7607e-01,  2.7452e+00, -1.2043e+00],
-        [ 2.1063e+00, -1.2398e+00,  6.3682e-01],
-        [ 5.4746e-01,  1.2262e+00, -4.4527e-01],
-        [-2.8257e-01,  1.4358e+00,  1.1797e-01],
-        [ 3.1237e-01,  9.2083e-01, -4.2769e-01],
-        [-3.8949e-01,  4.4135e-01, -2.2574e-01],
-        [ 1.4502e+00,  3.5819e-01,  1.7591e+00],
-        [ 5.1545e-01,  2.0221e-03, -7.6923e-01],
-        [-1.0620e+00, -7.5708e-01, -8.5034e-01],
-        [-7.7540e-01, -4.3203e-01,  1.1571e+00],
-        [ 1.5903e+00, -2.5023e-01, -2.3805e-02],
-        [-1.9459e+00,  4.6434e-02, -7.6621e-01],
-        [ 1.2833e+00,  8.5568e-01,  1.7956e+00],
-        [-6.6425e-01,  1.4324e+00,  5.0396e-01],
-        [-4.6953e-02,  1.6722e+00,  1.1690e+00],
-        [ 1.8016e+00,  7.0069e-02, -5.3753e-02],
-        [-7.7609e-01,  4.5554e-02, -2.2709e-01]])</pre>
+<pre>Tensor([[ 0.2352, -0.6727, -0.0980],
+        [ 0.8718,  0.4885,  0.1569],
+        [ 0.3534, -0.1937, -0.2761],
+        [-0.9768,  0.5176, -0.4168],
+        [-0.7900, -0.2027,  0.9504],
+        [-0.2068, -0.2647, -0.9379],
+        [-0.1932,  0.1133,  0.4211],
+        [-0.8624, -0.0824, -0.1483],
+        [ 0.9220, -0.0630,  0.1612],
+        [-0.6287,  0.7278, -0.1072],
+        [-0.3211, -0.1870,  0.0921],
+        [-0.8199,  0.4476, -0.9550],
+        [-0.8606, -0.1316, -0.6364],
+        [ 0.4619,  0.7456,  0.8764],
+        [-0.4544, -0.4977, -0.3639],
+        [-0.2540, -0.3486, -0.2027],
+        [ 0.2968,  0.2618, -0.1417],
+        [-0.4215, -0.2400,  0.9406],
+        [ 0.7734,  0.0112,  0.2107],
+        [-0.2007,  0.7832, -0.3069],
+        [ 0.4806, -0.1952, -0.9760],
+        [-0.1989, -0.5252, -0.5456],
+        [ 0.2367,  0.3678,  0.6270],
+        [ 0.3630,  0.3801, -0.1097],
+        [ 0.6998, -0.3958, -0.8104],
+        [ 0.5729,  0.9152, -0.4826],
+        [-0.0636,  0.3281, -0.2695]])</pre>
 </div>
 </div>
 </div>
@@ -7811,11 +7814,11 @@ token ids: Tensor([[ 7,  4, 11, 11, 14]])
 <div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
 <div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
 <pre>Tensor([[ 7,  4, 11, 11, 14]])
-Tensor([[[-1.2508,  0.0246,  1.1724],
-         [-0.2372, -0.4448, -0.3448],
-         [ 2.1063, -1.2398,  0.6368],
-         [ 2.1063, -1.2398,  0.6368],
-         [ 0.3124,  0.9208, -0.4277]]])
+Tensor([[[-0.8624, -0.0824, -0.1483],
+         [-0.7900, -0.2027,  0.9504],
+         [-0.8199,  0.4476, -0.9550],
+         [-0.8199,  0.4476, -0.9550],
+         [-0.4544, -0.4977, -0.3639]]])
 (1, 5, 3)
 </pre>
 </div>
@@ -7841,7 +7844,7 @@ Tensor([[[-1.2508,  0.0246,  1.1724],
 <div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="n">E_P</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">normal</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="n">E_P</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
 <span class="n">E_P</span>
 </pre></div>
 </div>
@@ -7855,11 +7858,11 @@ Tensor([[[-1.2508,  0.0246,  1.1724],
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[ 0.7010,  0.4283, -1.0594],
-        [ 2.9205,  0.2015, -0.5901],
-        [-0.5146, -0.2748, -0.3355],
-        [ 0.6693,  0.4179,  1.0724],
-        [ 0.2659,  0.3268,  0.8800]])</pre>
+<pre>Tensor([[ 0.6242, -0.6235,  0.8497],
+        [-0.0735, -0.8837, -0.2355],
+        [ 0.0816, -0.4588,  0.2073],
+        [ 0.8074, -0.6171, -0.9928],
+        [ 0.9810, -0.9886,  0.9379]])</pre>
 </div>
 </div>
 </div>
@@ -8003,7 +8006,7 @@ V.shape=(1, 5, 8)
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
 <h3 id="The-Attention-Mechanism">The Attention Mechanism<a class="anchor-link" href="#The-Attention-Mechanism">¶</a></h3><p>$$ Attn(Q, K, V) = softmax \left( \frac{Q K^T}{\sqrt{H}} \right) V $$</p>
-<p>The first step in the attention mechanism is the dot-product between $ Q $ and $ K^T $. This is where tokens "communicate" by computing a similarity score between a tokens' query and the keys of all other tokens that come before it (causal attention). A high similarity score can be interpreted as how important other tokens are to a specific token.</p>
+<p>The first step in the attention mechanism is the dot-product between $ Q $ and $ K^T $. This is where tokens "communicate" by computing a similarity score between a tokens' query (rows) and the keys (columns) of all other tokens that come before it (causal attention). A high similarity score can be interpreted as how important other tokens are to a specific token.</p>
 <p><img alt="image.png" src="data:image/png;base64,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"/></p>
 </div>
 </div>
@@ -8040,11 +8043,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[-3.9555e-01,  6.1334e-01,  1.9610e+00,  3.9775e+00,  3.0895e-01],
-         [ 8.8844e-01, -1.8995e+00, -3.9242e+00, -7.4643e+00, -4.9424e-01],
-         [ 1.6588e+00, -2.1894e+00, -8.1665e+00, -1.5973e+01, -8.1090e-01],
-         [ 2.9895e+00, -3.5917e+00, -1.3997e+01, -2.5224e+01,  1.5349e-02],
-         [ 1.2818e-01, -1.4963e-01, -4.9556e-02,  1.3224e+00,  8.5352e-01]]])</pre>
+<pre>Tensor([[[-1.4421, -1.5259,  1.3082,  2.5818, -2.1654],
+         [-2.0372, -1.5616,  2.8055,  4.3710, -3.6887],
+         [ 0.6988,  1.8711,  1.1853,  0.0784, -0.1883],
+         [ 4.0548,  6.7146,  0.1798, -4.7866,  3.1492],
+         [-0.0079,  0.6726,  1.0670,  0.4738, -1.0190]]])</pre>
 </div>
 </div>
 </div>
@@ -8083,11 +8086,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[-1.3985e-01,  2.1685e-01,  6.9334e-01,  1.4062e+00,  1.0923e-01],
-         [ 3.1411e-01, -6.7158e-01, -1.3874e+00, -2.6390e+00, -1.7474e-01],
-         [ 5.8648e-01, -7.7408e-01, -2.8873e+00, -5.6473e+00, -2.8670e-01],
-         [ 1.0569e+00, -1.2699e+00, -4.9487e+00, -8.9180e+00,  5.4267e-03],
-         [ 4.5318e-02, -5.2903e-02, -1.7521e-02,  4.6753e-01,  3.0176e-01]]])</pre>
+<pre>Tensor([[[-0.5099, -0.5395,  0.4625,  0.9128, -0.7656],
+         [-0.7203, -0.5521,  0.9919,  1.5454, -1.3041],
+         [ 0.2471,  0.6615,  0.4191,  0.0277, -0.0666],
+         [ 1.4336,  2.3740,  0.0636, -1.6923,  1.1134],
+         [-0.0028,  0.2378,  0.3772,  0.1675, -0.3603]]])</pre>
 </div>
 </div>
 </div>
@@ -8164,11 +8167,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[-0.1398,    -inf,    -inf,    -inf,    -inf],
-         [ 0.3141, -0.6716,    -inf,    -inf,    -inf],
-         [ 0.5865, -0.7741, -2.8873,    -inf,    -inf],
-         [ 1.0569, -1.2699, -4.9487, -8.9180,    -inf],
-         [ 0.0453, -0.0529, -0.0175,  0.4675,  0.3018]]])</pre>
+<pre>Tensor([[[-0.5099,    -inf,    -inf,    -inf,    -inf],
+         [-0.7203, -0.5521,    -inf,    -inf,    -inf],
+         [ 0.2471,  0.6615,  0.4191,    -inf,    -inf],
+         [ 1.4336,  2.3740,  0.0636, -1.6923,    -inf],
+         [-0.0028,  0.2378,  0.3772,  0.1675, -0.3603]]])</pre>
 </div>
 </div>
 </div>
@@ -8209,11 +8212,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[1.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00, 0.0000e+00],
-         [7.2824e-01, 2.7176e-01, 0.0000e+00, 0.0000e+00, 0.0000e+00],
-         [7.7669e-01, 1.9924e-01, 2.4077e-02, 0.0000e+00, 0.0000e+00],
-         [9.0899e-01, 8.8724e-02, 2.2406e-03, 4.2316e-05, 0.0000e+00],
-         [1.7658e-01, 1.6006e-01, 1.6582e-01, 2.6934e-01, 2.2820e-01]]])</pre>
+<pre>Tensor([[[1.0000, 0.0000, 0.0000, 0.0000, 0.0000],
+         [0.4581, 0.5419, 0.0000, 0.0000, 0.0000],
+         [0.2702, 0.4089, 0.3209, 0.0000, 0.0000],
+         [0.2591, 0.6636, 0.0658, 0.0114, 0.0000],
+         [0.1780, 0.2264, 0.2602, 0.2110, 0.1245]]])</pre>
 </div>
 </div>
 </div>
@@ -8239,8 +8242,8 @@ V.shape=(1, 5, 8)
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
 <div class="highlight hl-ipython3"><pre><span></span><span class="c1"># (B, T, H) = (B, T, T) @ (B, T, H)</span>
-<span class="n">attn</span> <span class="o">=</span> <span class="n">sm</span> <span class="o">@</span> <span class="n">V</span>
-<span class="n">attn</span>
+<span class="n">A</span> <span class="o">=</span> <span class="n">sm</span> <span class="o">@</span> <span class="n">V</span>
+<span class="n">A</span>
 </pre></div>
 </div>
 </div>
@@ -8253,11 +8256,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[-0.2705, -0.7126,  0.7040,  0.5724, -0.1536, -0.4377,  0.8773,  0.3066],
-         [-0.0354,  0.1292, -0.1856, -0.1261,  0.6339,  0.2868, -0.0284,  0.1171],
-         [-0.0713, -0.0387, -0.0073, -0.0049,  0.4238,  0.1399,  0.1298,  0.1315],
-         [-0.1912, -0.4324,  0.4080,  0.3381,  0.1035, -0.1967,  0.5737,  0.2413],
-         [ 0.3136,  0.4202, -0.7848, -1.7748,  0.8395,  1.6207, -1.1309, -0.5485]]])</pre>
+<pre>Tensor([[[ 1.1207, -0.3094, -0.4141, -0.6157, -0.3641, -0.5346,  0.3183, -0.2565],
+         [ 1.4181, -0.2863, -0.3293, -0.5898, -0.3465, -0.7393,  0.4175, -0.0319],
+         [ 0.9156, -0.0545,  0.0133, -0.1592, -0.1051, -0.4962,  0.3052,  0.3133],
+         [ 1.3700, -0.2159, -0.2143, -0.4678, -0.2815, -0.7179,  0.4215,  0.1221],
+         [ 0.4251,  0.2201,  0.3115,  0.2422, -0.0043,  0.1941,  0.3447,  0.5498]]])</pre>
 </div>
 </div>
 </div>
@@ -8288,7 +8291,7 @@ V.shape=(1, 5, 8)
 <div class="highlight hl-ipython3"><pre><span></span><span class="n">W_proj</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">random</span><span class="o">.</span><span class="n">uniform</span><span class="p">((</span><span class="n">H</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
 
 <span class="c1"># (B, T, C) = (B, T, C) + (B, T, H) @ ((B), H, C)</span>
-<span class="n">add</span> <span class="o">=</span> <span class="n">X_E</span> <span class="o">+</span> <span class="n">attn</span> <span class="o">@</span> <span class="n">W_proj</span>
+<span class="n">add</span> <span class="o">=</span> <span class="n">X_E</span> <span class="o">+</span> <span class="n">A</span> <span class="o">@</span> <span class="n">W_proj</span>
 <span class="n">add</span>
 </pre></div>
 </div>
@@ -8302,11 +8305,11 @@ V.shape=(1, 5, 8)
 <div class="jp-OutputArea-child jp-OutputArea-executeResult">
 <div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
 <div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
-<pre>Tensor([[[-0.3216, -0.5995, -0.8557],
-         [ 2.1697, -0.6151, -0.4160],
-         [ 1.2666, -1.9693,  0.4847],
-         [ 2.7607, -1.6429,  1.2319],
-         [-0.1924,  1.4314,  0.8387]]])</pre>
+<pre>Tensor([[[ 0.2573,  0.3715,  1.4146],
+         [-0.4562, -0.0362,  1.5039],
+         [-0.7060,  0.3170, -0.3412],
+         [ 0.2773,  0.6854, -1.2303],
+         [ 0.4311, -1.6926,  0.8631]]])</pre>
 </div>
 </div>
 </div>
@@ -8318,11 +8321,12 @@ V.shape=(1, 5, 8)
 </div>
 <div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
 </div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
-<h3 id="Normalization">Normalization<a class="anchor-link" href="#Normalization">¶</a></h3><p>This refers to layer normalization (<a href="https://arxiv.org/pdf/1607.06450">https://arxiv.org/pdf/1607.06450</a>).</p>
+<h3 id="Normalization">Normalization<a class="anchor-link" href="#Normalization">¶</a></h3><p>This refers to layer normalization (<a href="https://arxiv.org/pdf/1607.06450">https://arxiv.org/pdf/1607.06450</a>). To address the vanishing/exploding gradient problem, values are normalized using mean $ \mu $ and standard deviation $ \sigma $ which are computed over <strong>all dimension except the batch dimension</strong>. To allow for learning, a shifting $ b $ and scaling $ \gamma $ is introduced.</p>
+<p>$$ Y = \gamma \cdot (\frac{X - \mu}{\sigma}) + b $$</p>
 </div>
 </div>
 </div>
-</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell jp-mod-noOutputs">
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
 <div class="jp-Cell-inputWrapper" tabindex="0">
 <div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
 </div>
@@ -8330,9 +8334,75 @@ V.shape=(1, 5, 8)
 <div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
 <div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
 <div class="cm-editor cm-s-jupyter">
-<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># TODO</span>
+<div class="highlight hl-ipython3"><pre><span></span><span class="c1"># gamma and b are initialized such that there is no scaling and shifting in the beginning</span>
+<span class="c1"># These are learnable parameters</span>
+<span class="n">gamma</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">ones</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
+<span class="n">b</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">zeros</span><span class="p">(</span><span class="n">shape</span><span class="o">=</span><span class="p">(</span><span class="n">T</span><span class="p">,</span> <span class="n">C</span><span class="p">))</span>
+
+<span class="n">mu</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">add</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+<span class="n">sigma</span> <span class="o">=</span> <span class="n">cp</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">add</span><span class="p">,</span> <span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span> <span class="mi">2</span><span class="p">),</span> <span class="n">keepdims</span><span class="o">=</span><span class="kc">True</span><span class="p">)</span>
+
+<span class="c1"># (B, T, C) = ((B), T, C) * ((B, T, C) - (B, (T), (C))) / (B, (T), (C)) + ((B), T, C)</span>
+<span class="n">norm</span> <span class="o">=</span> <span class="n">gamma</span> <span class="o">*</span> <span class="p">((</span><span class="n">add</span> <span class="o">-</span> <span class="n">mu</span><span class="p">)</span> <span class="o">/</span> <span class="n">sigma</span><span class="p">)</span> <span class="o">+</span> <span class="n">b</span>
+<span class="n">norm</span>
 </pre></div>
 </div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child jp-OutputArea-executeResult">
+<div class="jp-OutputPrompt jp-OutputArea-prompt">Out[ ]:</div>
+<div class="jp-RenderedText jp-OutputArea-output jp-OutputArea-executeResult" data-mime-type="text/plain" tabindex="0">
+<pre>Tensor([[[ 0.1709,  0.3038,  1.5184],
+         [-0.6599, -0.1710,  1.6223],
+         [-0.9508,  0.2404, -0.5260],
+         [ 0.1941,  0.6693, -1.5612],
+         [ 0.3732, -2.0995,  0.8762]]])</pre>
+</div>
+</div>
+</div>
+</div>
+</div><div class="jp-Cell jp-CodeCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea">
+<div class="jp-InputPrompt jp-InputArea-prompt">In [ ]:</div>
+<div class="jp-CodeMirrorEditor jp-Editor jp-InputArea-editor" data-type="inline">
+<div class="cm-editor cm-s-jupyter">
+<div class="highlight hl-ipython3"><pre><span></span><span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"mean=</span><span class="si">{</span><span class="n">cp</span><span class="o">.</span><span class="n">mean</span><span class="p">(</span><span class="n">norm</span><span class="p">,</span><span class="w"> </span><span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+<span class="nb">print</span><span class="p">(</span><span class="sa">f</span><span class="s2">"std=</span><span class="si">{</span><span class="n">cp</span><span class="o">.</span><span class="n">std</span><span class="p">(</span><span class="n">norm</span><span class="p">,</span><span class="w"> </span><span class="n">axis</span><span class="o">=</span><span class="p">(</span><span class="mi">1</span><span class="p">,</span><span class="w"> </span><span class="mi">2</span><span class="p">))</span><span class="si">}</span><span class="s2">"</span><span class="p">)</span>
+</pre></div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell-outputWrapper">
+<div class="jp-Collapser jp-OutputCollapser jp-Cell-outputCollapser">
+</div>
+<div class="jp-OutputArea jp-Cell-outputArea">
+<div class="jp-OutputArea-child">
+<div class="jp-OutputPrompt jp-OutputArea-prompt"></div>
+<div class="jp-RenderedText jp-OutputArea-output" data-mime-type="text/plain" tabindex="0">
+<pre>mean=Tensor([6.6613e-17])
+std=Tensor([1.])
+</pre>
+</div>
+</div>
+</div>
+</div>
+</div>
+<div class="jp-Cell jp-MarkdownCell jp-Notebook-cell">
+<div class="jp-Cell-inputWrapper" tabindex="0">
+<div class="jp-Collapser jp-InputCollapser jp-Cell-inputCollapser">
+</div>
+<div class="jp-InputArea jp-Cell-inputArea"><div class="jp-InputPrompt jp-InputArea-prompt">
+</div><div class="jp-RenderedHTMLCommon jp-RenderedMarkdown jp-MarkdownOutput" data-mime-type="text/markdown">
+<p>This concludes the main Transformer-components. Stacked on top of the Transformer-Block is a simple Feed-Forward-Network.</p>
 </div>
 </div>
 </div>
