@@ -1,2 +1,2 @@
-compyute-0.0.1-py3-none-any.whl
+compyute-0.1.0-py3-none-any.whl
 torch --index-url https://download.pytorch.org/whl/cu121
