@@ -13,15 +13,15 @@ from compyute.nn import (
     Linear,
     ParallelConcat,
     ReLU,
+    ResidualBlock,
     Sequential,
-    SkipConnection,
 )
 from compyute.nn.functional import softmax
 from compyute.tensor_functions.creating import zeros_like
 
 
 class Transformer(Container):
-    """Transformer Neural Network"""
+    """Transformer model"""
 
     def __init__(
         self,
@@ -40,7 +40,7 @@ class Transformer(Container):
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        """Transformer Block.
+        """Transformer model.
 
         Parameters
         ----------
@@ -81,6 +81,7 @@ class Transformer(Container):
             label="TokenEmbedding",
             training=training,
         )
+
         self.pos_embedding = Embedding(
             vocab_size=sequence_length,
             embedding_dim=emb_dim,
@@ -103,22 +104,26 @@ class Transformer(Container):
             "label": "TransformerBlock",
             "training": training,
         }
-        self.blocks = Sequential(
-            *[TransformerBlock(**transformer_kwargs) for _ in range(n_layers)], training=training
-        )
+        if n_layers == 1:
+            self.transformer_blocks = TransformerBlock(**transformer_kwargs)
+        else:
+            self.transformer_blocks = Sequential(
+                *[TransformerBlock(**transformer_kwargs) for _ in range(n_layers)],
+                label="TransformerBlocks",
+                training=training
+            )
         self.out_projection = Linear(emb_dim, vocab_size, label="OutProjection", training=training)
 
     def forward(self, x: Tensor) -> Tensor:
-        token_emb = self.token_embedding(x)
-        pos_emb = self.pos_embedding(x)
-        x = token_emb + pos_emb
-        x = self.blocks(x)
+        x = self.token_embedding(x) + self.pos_embedding(x)
+        x = self.transformer_blocks(x)
         y = self.out_projection(x)
 
         def _backward(dy: Tensor) -> Tensor:
             dy = self.out_projection.backward(dy)
-            dy = self.blocks.backward(dy)
+            dy = self.transformer_blocks.backward(dy)
             self.token_embedding.backward(dy)
+            self.pos_embedding.backward(dy)
             return zeros_like(x)
 
         self._backward = _backward
@@ -192,12 +197,9 @@ class TransformerBlock(Sequential):
             "dtype": dtype,
             "training": training,
         }
-        attention_block = SkipConnection(
-            Sequential(
-                Layernorm(**layernorm_kwargs),
-                MultiHeadAttention(**attention_block_kwargs),
-                training=training,
-            ),
+        attention_block = ResidualBlock(
+            Layernorm(**layernorm_kwargs),
+            MultiHeadAttention(**attention_block_kwargs),
             training=training,
         )
 
@@ -210,12 +212,9 @@ class TransformerBlock(Sequential):
             "dtype": dtype,
             "training": training,
         }
-        feedforward_block = SkipConnection(
-            Sequential(
-                Layernorm(**layernorm_kwargs),
-                FeedForward(**feedforward_block_kwargs),
-                training=training,
-            ),
+        feedforward_block = ResidualBlock(
+            Layernorm(**layernorm_kwargs),
+            FeedForward(**feedforward_block_kwargs),
             training=training,
         )
 
@@ -235,7 +234,7 @@ class FeedForward(Sequential):
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        """FeedForward Block.
+        """FeedForward.
 
         Parameters
         ----------
@@ -269,7 +268,7 @@ class FeedForward(Sequential):
 
 
 class MultiHeadAttention(Sequential):
-    """Multi Head Attention Block"""
+    """Multi Head Attention"""
 
     def __init__(
         self,
@@ -282,7 +281,7 @@ class MultiHeadAttention(Sequential):
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        """Multi Head Attention Block.
+        """Multi Head Attention.
 
         Parameters
         ----------
@@ -293,7 +292,7 @@ class MultiHeadAttention(Sequential):
         mask : Tensor, optional
             Mask for the attention, by default None.
         dropout : float, optional
-            Dropout probability, by default None.
+            Dropout probability of attention output weights, by default None.
         bias : bool, optional
             Whether to use bias values, by default True.
         dtype: DtypeLike, optional
@@ -316,7 +315,7 @@ class MultiHeadAttention(Sequential):
         layers = [
             ParallelConcat(
                 *[AttentionHead(**attention_head_kwargs) for _ in range(n_heads)],
-                label="Heads",
+                label="AttentionHeads",
                 training=training
             ),
             Linear(emb_dim, emb_dim, bias, dtype, label="OutProjection", training=training),
@@ -357,7 +356,7 @@ class AttentionHead(Container):
         mask : Tensor, optional
             Mask for the attention, by default None.
         dropout : float, optional
-            Dropout probability, by default None.
+            Dropout probability of attention output weights, by default None.
         bias : bool, optional
             Whether to use bias values, by default True.
         dtype: DtypeLike, optional
@@ -385,28 +384,28 @@ class AttentionHead(Container):
         v = self.v(x)
 
         # attention
-        qk = q @ k.T * self.head_size**-0.5
+        attn_weights = q @ k.T * self.head_size**-0.5
         if self.mask is not None:
-            qk += self.mask
-        sm, sm_grad_func = softmax(qk, self._training)
+            attn_weights += self.mask
+        attn_weights, sm_grad_func = softmax(attn_weights, self._training)
         if self.dropout is not None:
-            sm = self.dropout(sm)
-        y = sm @ v
+            attn_weights = self.dropout(attn_weights)
+        y = attn_weights @ v
 
         if self._training and sm_grad_func is not None:
 
             def _backward(dy: Tensor) -> Tensor:
                 dy = dy.as_type(self.dtype)
 
-                dsm = dy @ v.T
+                dattn_weights = dy @ v.T
 
                 if self.dropout is not None:
-                    dsm = self.dropout.backward(dsm)
+                    dattn_weights = self.dropout.backward(dattn_weights)
 
-                dqk = sm_grad_func(dsm) * self.head_size**-0.5
-                dq = self.q.backward(dqk @ k)
-                dk = self.k.backward(dqk.T @ q)
-                dv = self.v.backward(sm.T @ dy)
+                dattn_weights = sm_grad_func(dattn_weights) * self.head_size**-0.5
+                dq = self.q.backward(dattn_weights @ k)
+                dk = self.k.backward(dattn_weights.T @ q)
+                dv = self.v.backward(attn_weights.T @ dy)
 
                 return dq + dk + dv
 
