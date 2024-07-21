@@ -105,26 +105,24 @@ class Transformer(Container):
             "training": training,
         }
         if n_layers == 1:
-            self.transformer_blocks = TransformerBlock(**transformer_kwargs)
+            self.blocks = TransformerBlock(**transformer_kwargs)
         else:
-            self.transformer_blocks = Sequential(
-                *[TransformerBlock(**transformer_kwargs) for _ in range(n_layers)],
-                label="TransformerBlocks",
-                training=training
-            )
+            blocks = [TransformerBlock(**transformer_kwargs) for _ in range(n_layers)]
+            self.blocks = Sequential(*blocks, label="Blocks", training=training)
+
         self.out_projection = Linear(emb_dim, vocab_size, label="OutProjection", training=training)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.token_embedding(x) + self.pos_embedding(x)
-        x = self.transformer_blocks(x)
+        x = self.blocks(x)
         y = self.out_projection(x)
 
         def _backward(dy: Tensor) -> Tensor:
             dy = self.out_projection.backward(dy)
-            dy = self.transformer_blocks.backward(dy)
+            dy = self.blocks.backward(dy)
             self.token_embedding.backward(dy)
             self.pos_embedding.backward(dy)
-            return zeros_like(x)
+            return zeros_like(x)  # dummy output
 
         self._backward = _backward
 
@@ -132,7 +130,7 @@ class Transformer(Container):
 
 
 class TransformerBlock(Sequential):
-    """Transformer Block"""
+    """Transformer block consisting of a multi head attention block and a feed forward block"""
 
     def __init__(
         self,
@@ -142,14 +140,14 @@ class TransformerBlock(Sequential):
         sequence_length: int,
         mask: Optional[Tensor] = None,
         dropout: Optional[float] = None,
-        attention_bias: bool = False,
+        attention_bias: bool = True,
         feedforward_bias: bool = True,
         layernorm_eps: float = 1e-5,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        """Transformer Block.
+        """Transformer block consisting of a multi head attention block and a feed forward block.
 
         Parameters
         ----------
@@ -166,7 +164,8 @@ class TransformerBlock(Sequential):
         dropout : float, optional
             Dropout probability, by default None.
         attention_bias : bool, optional
-            Whether to use bias values in the attention block, by default True.
+            Whether to use bias values in the input and output projection
+            of the multi head attention block, by default True.
         feedforward_bias : bool, optional
             Whether to use bias values in the feedforward block, by default True.
         layernorm_eps : float, optional
@@ -222,7 +221,7 @@ class TransformerBlock(Sequential):
 
 
 class FeedForward(Sequential):
-    """FeedForward Block"""
+    """FeedForward block for transformers"""
 
     def __init__(
         self,
@@ -234,7 +233,7 @@ class FeedForward(Sequential):
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        """FeedForward.
+        """FeedForward block for transformers.
 
         Parameters
         ----------
@@ -256,13 +255,11 @@ class FeedForward(Sequential):
         dtype = Dtype(dtype)
 
         layers = [
-            Linear(emb_dim, ffd_dim, bias=bias, dtype=dtype, training=training),
+            Linear(emb_dim, ffd_dim, bias, dtype, training=training),
             ReLU(training=training),
-            Linear(ffd_dim, emb_dim, bias=bias, dtype=dtype, training=training),
+            Linear(ffd_dim, emb_dim, bias, dtype, training=training),
         ]
-
-        if dropout is not None:
-            layers.append(Dropout(p=dropout, training=training))
+        layers += [Dropout(dropout, training=training)] if dropout is not None else []
 
         super().__init__(*layers, label=label, training=training)
 
@@ -276,12 +273,17 @@ class MultiHeadAttention(Sequential):
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout: Optional[float] = None,
-        bias: bool = False,
+        bias: bool = True,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
         """Multi Head Attention.
+
+        Input: (B, T, C)
+            B ... batch, T ... time, C ... embedding dimension
+        Output: (B, T, C)
+            B ... batch, T ... time, C ... embedding dimension
 
         Parameters
         ----------
@@ -294,7 +296,7 @@ class MultiHeadAttention(Sequential):
         dropout : float, optional
             Dropout probability of attention output weights, by default None.
         bias : bool, optional
-            Whether to use bias values, by default True.
+            Whether to use bias values to input and output projection, by default True.
         dtype: DtypeLike, optional
             Datatype of weights and biases, by default Dtype.FLOAT32.
         label: str, optional
@@ -302,7 +304,11 @@ class MultiHeadAttention(Sequential):
         training: bool, optional
             Whether the module should be in training mode, by default False.
         """
+        if emb_dim % n_heads != 0:
+            raise ValueError("Embedding dim must be divisible by number of heads.")
+
         dtype = Dtype(dtype)
+
         attention_head_kwargs = {
             "emb_dim": emb_dim,
             "head_size": emb_dim // n_heads,
@@ -312,17 +318,12 @@ class MultiHeadAttention(Sequential):
             "dtype": dtype,
             "training": training,
         }
+        attention_heads = [AttentionHead(**attention_head_kwargs) for _ in range(n_heads)]
         layers = [
-            ParallelConcat(
-                *[AttentionHead(**attention_head_kwargs) for _ in range(n_heads)],
-                label="AttentionHeads",
-                training=training
-            ),
+            ParallelConcat(*attention_heads, label="AttentionHeads", training=training),
             Linear(emb_dim, emb_dim, bias, dtype, label="OutProjection", training=training),
         ]
-
-        if dropout is not None:
-            layers.append(Dropout(p=dropout, training=training))
+        layers += [Dropout(p=dropout, training=training)] if dropout is not None else []
 
         super().__init__(*layers, label=label, training=training)
 
@@ -336,12 +337,13 @@ class AttentionHead(Container):
         head_size: int,
         mask: Optional[Tensor] = None,
         dropout: Optional[float] = None,
-        bias: bool = False,
+        bias: bool = True,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
         """Attention Head.
+
         Input: (B, T, C)
             B ... batch, T ... time, C ... embedding dimension
         Output: (B, T, H)
@@ -358,7 +360,7 @@ class AttentionHead(Container):
         dropout : float, optional
             Dropout probability of attention output weights, by default None.
         bias : bool, optional
-            Whether to use bias values, by default True.
+            Whether to use bias values to input projection, by default True.
         dtype: DtypeLike, optional
             Datatype of weights and biases, by default Dtype.FLOAT32.
         label: str, optional
@@ -369,9 +371,9 @@ class AttentionHead(Container):
         super().__init__(label=label, training=training)
         self.dtype = Dtype(dtype)
 
-        self.q = Linear(emb_dim, head_size, bias, self.dtype, label="Query", training=training)
-        self.k = Linear(emb_dim, head_size, bias, self.dtype, label="Key", training=training)
-        self.v = Linear(emb_dim, head_size, bias, self.dtype, label="Value", training=training)
+        self.query = Linear(emb_dim, head_size, bias, self.dtype, label="Query", training=training)
+        self.key = Linear(emb_dim, head_size, bias, self.dtype, label="Key", training=training)
+        self.value = Linear(emb_dim, head_size, bias, self.dtype, label="Value", training=training)
         self.dropout = Dropout(p=dropout, training=training) if dropout else None
 
         self.head_size = head_size
@@ -379,15 +381,15 @@ class AttentionHead(Container):
 
     def forward(self, x: Tensor) -> Tensor:
         # input projections
-        q = self.q(x)
-        k = self.k(x)
-        v = self.v(x)
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
 
         # attention
-        attn_weights = q @ k.T * self.head_size**-0.5
+        qk = q @ k.T * self.head_size**-0.5
         if self.mask is not None:
-            attn_weights += self.mask
-        attn_weights, sm_grad_func = softmax(attn_weights, self._training)
+            qk += self.mask
+        attn_weights, sm_grad_func = softmax(qk, self._training)
         if self.dropout is not None:
             attn_weights = self.dropout(attn_weights)
         y = attn_weights @ v
@@ -397,17 +399,18 @@ class AttentionHead(Container):
             def _backward(dy: Tensor) -> Tensor:
                 dy = dy.as_type(self.dtype)
 
+                # attention gradients
                 dattn_weights = dy @ v.T
-
                 if self.dropout is not None:
                     dattn_weights = self.dropout.backward(dattn_weights)
+                dqk = sm_grad_func(dattn_weights) * self.head_size**-0.5
 
-                dattn_weights = sm_grad_func(dattn_weights) * self.head_size**-0.5
-                dq = self.q.backward(dattn_weights @ k)
-                dk = self.k.backward(dattn_weights.T @ q)
-                dv = self.v.backward(attn_weights.T @ dy)
+                # input projection gradients
+                dx1 = self.query.backward(dqk @ k)  # dq = dqk @ k
+                dx2 = self.key.backward(dqk.T @ q)  # dk = dqk.T @ q
+                dx3 = self.value.backward(attn_weights.T @ dy)  # dq = attn_weights.T @ dy
 
-                return dq + dk + dv
+                return dx1 + dx2 + dx3
 
             self._backward = _backward
 
