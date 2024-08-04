@@ -25,8 +25,8 @@ class Transformer(Container):
 
     def __init__(
         self,
-        vocab_size: int,
-        emb_dim: int,
+        n_embeddings: int,
+        embedding_dim: int,
         ffd_dim: int,
         n_heads: int,
         n_layers: int,
@@ -44,9 +44,9 @@ class Transformer(Container):
 
         Parameters
         ----------
-        vocab_size : int
-            Vocabulary size.
-        emb_dim : int
+        n_embeddings : int
+            Number of embedding vectors.
+        embedding_dim : int
             Number of embedding dimensions of the input.
         ffd_dim : int
             Number of dimensions of the hidden layer in the feed forward block.
@@ -71,27 +71,25 @@ class Transformer(Container):
         training: bool, optional
             Whether the module should be in training mode, by default False.
         """
-        super().__init__(label=label, training=training)
-        dtype = Dtype(dtype)
 
         self.token_embedding = Embedding(
-            vocab_size=vocab_size,
-            embedding_dim=emb_dim,
+            n_embeddings=n_embeddings,
+            embedding_dim=embedding_dim,
             dtype=dtype,
             label="TokenEmbedding",
             training=training,
         )
 
         self.pos_embedding = Embedding(
-            vocab_size=sequence_length,
-            embedding_dim=emb_dim,
+            n_embeddings=sequence_length,
+            embedding_dim=embedding_dim,
             dtype=dtype,
             label="PosEmbedding",
             training=training,
         )
 
         transformer_kwargs = {
-            "emb_dim": emb_dim,
+            "embedding_dim": embedding_dim,
             "ffd_dim": ffd_dim,
             "n_heads": n_heads,
             "sequence_length": sequence_length,
@@ -110,7 +108,18 @@ class Transformer(Container):
             blocks = [TransformerBlock(**transformer_kwargs) for _ in range(n_layers)]
             self.blocks = Sequential(*blocks, label="Blocks", training=training)
 
-        self.out_projection = Linear(emb_dim, vocab_size, label="OutProjection", training=training)
+        self.out_projection = Linear(
+            embedding_dim, n_embeddings, label="OutProjection", training=training
+        )
+
+        super().__init__(
+            self.token_embedding,
+            self.pos_embedding,
+            self.blocks,
+            self.out_projection,
+            label=label,
+            training=training,
+        )
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.token_embedding(x) + self.pos_embedding(x)
@@ -134,7 +143,7 @@ class TransformerBlock(Sequential):
 
     def __init__(
         self,
-        emb_dim: int,
+        embedding_dim: int,
         ffd_dim: int,
         n_heads: int,
         sequence_length: int,
@@ -151,7 +160,7 @@ class TransformerBlock(Sequential):
 
         Parameters
         ----------
-        emb_dim : int
+        embedding_dim : int
             Number of embedding dimensions of the input.
         ffd_dim : int
             Number of dimensions of the hidden layer in the feed forward block.
@@ -177,10 +186,8 @@ class TransformerBlock(Sequential):
         training: bool, optional
             Whether the module should be in training mode, by default False.
         """
-        dtype = Dtype(dtype)
-
         layernorm_kwargs = {
-            "normalized_shape": (sequence_length, emb_dim),
+            "normalized_shape": (sequence_length, embedding_dim),
             "eps": layernorm_eps,
             "dtype": dtype,
             "training": training,
@@ -188,7 +195,7 @@ class TransformerBlock(Sequential):
 
         # attention block
         attention_block_kwargs = {
-            "emb_dim": emb_dim,
+            "embedding_dim": embedding_dim,
             "n_heads": n_heads,
             "mask": mask,
             "dropout": dropout,
@@ -204,7 +211,7 @@ class TransformerBlock(Sequential):
 
         # feedforward block
         feedforward_block_kwargs = {
-            "emb_dim": emb_dim,
+            "embedding_dim": embedding_dim,
             "ffd_dim": ffd_dim,
             "dropout": dropout,
             "bias": feedforward_bias,
@@ -225,7 +232,7 @@ class FeedForward(Sequential):
 
     def __init__(
         self,
-        emb_dim: int,
+        embedding_dim: int,
         ffd_dim: int,
         dropout: Optional[float] = None,
         bias: bool = True,
@@ -237,7 +244,7 @@ class FeedForward(Sequential):
 
         Parameters
         ----------
-        emb_dim : int
+        embedding_dim : int
             Number of embedding dimensions of the input.
         ffd_dim : int
             Number of dimensions of the hidden layer in the feed forward block.
@@ -255,9 +262,9 @@ class FeedForward(Sequential):
         dtype = Dtype(dtype)
 
         layers = [
-            Linear(emb_dim, ffd_dim, bias, dtype, training=training),
+            Linear(embedding_dim, ffd_dim, bias, dtype, training=training),
             ReLU(training=training),
-            Linear(ffd_dim, emb_dim, bias, dtype, training=training),
+            Linear(ffd_dim, embedding_dim, bias, dtype, training=training),
         ]
         layers += [Dropout(dropout, training=training)] if dropout is not None else []
 
@@ -269,7 +276,7 @@ class MultiHeadAttention(Sequential):
 
     def __init__(
         self,
-        emb_dim: int,
+        embedding_dim: int,
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout: Optional[float] = None,
@@ -287,7 +294,7 @@ class MultiHeadAttention(Sequential):
 
         Parameters
         ----------
-        emb_dim : int
+        embedding_dim : int
             Number of embedding dimensions of the input.
         n_heads : int
             Number of attention heads.
@@ -304,14 +311,12 @@ class MultiHeadAttention(Sequential):
         training: bool, optional
             Whether the module should be in training mode, by default False.
         """
-        if emb_dim % n_heads != 0:
+        if embedding_dim % n_heads != 0:
             raise ValueError("Embedding dim must be divisible by number of heads.")
 
-        dtype = Dtype(dtype)
-
         attention_head_kwargs = {
-            "emb_dim": emb_dim,
-            "head_size": emb_dim // n_heads,
+            "embedding_dim": embedding_dim,
+            "head_size": embedding_dim // n_heads,
             "mask": mask,
             "dropout": dropout,
             "bias": bias,
@@ -321,9 +326,9 @@ class MultiHeadAttention(Sequential):
         attention_heads = [AttentionHead(**attention_head_kwargs) for _ in range(n_heads)]
         layers = [
             ParallelConcat(*attention_heads, label="AttentionHeads", training=training),
-            Linear(emb_dim, emb_dim, bias, dtype, label="OutProjection", training=training),
+            Linear(embedding_dim, embedding_dim, bias, dtype, "OutProjection", training),
         ]
-        layers += [Dropout(p=dropout, training=training)] if dropout is not None else []
+        layers += [Dropout(dropout, training=training)] if dropout is not None else []
 
         super().__init__(*layers, label=label, training=training)
 
@@ -333,7 +338,7 @@ class AttentionHead(Container):
 
     def __init__(
         self,
-        emb_dim: int,
+        embedding_dim: int,
         head_size: int,
         mask: Optional[Tensor] = None,
         dropout: Optional[float] = None,
@@ -351,7 +356,7 @@ class AttentionHead(Container):
 
         Parameters
         ----------
-        emb_dim : int
+        embedding_dim : int
             Number of embedding dimensions of the input.
         head_size : int
             Head size of the attention head.
@@ -371,10 +376,10 @@ class AttentionHead(Container):
         super().__init__(label=label, training=training)
         self.dtype = Dtype(dtype)
 
-        self.query = Linear(emb_dim, head_size, bias, self.dtype, label="Query", training=training)
-        self.key = Linear(emb_dim, head_size, bias, self.dtype, label="Key", training=training)
-        self.value = Linear(emb_dim, head_size, bias, self.dtype, label="Value", training=training)
-        self.dropout = Dropout(p=dropout, training=training) if dropout else None
+        self.query = Linear(embedding_dim, head_size, bias, dtype, "Query", training)
+        self.key = Linear(embedding_dim, head_size, bias, dtype, "Key", training)
+        self.value = Linear(embedding_dim, head_size, bias, dtype, "Value", training)
+        self.dropout = Dropout(dropout, training=training) if dropout else None
 
         self.head_size = head_size
         self.mask = Buffer(mask) if mask is not None else None
