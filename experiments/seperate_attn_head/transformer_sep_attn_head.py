@@ -9,11 +9,11 @@ from compyute.nn.modules.activations import _ActivationLike, get_activation
 from compyute.nn.modules.containers import Container, Residual, Sequential
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
-from compyute.nn.modules.module import Module
 from compyute.nn.modules.normalization import Layernorm
 from compyute.nn.modules.regularization import Dropout
 from compyute.nn.parameter import Buffer, Parameter
 from compyute.random.random import normal, uniform
+from compyute.tensor_functions.computing import tensorsum
 from compyute.tensor_functions.creating import arange, concatenate, split, zeros_like
 
 
@@ -282,17 +282,7 @@ class MultiHeadAttention(Container):
     r"""Multi Head Attention.
 
     .. math::
-        \begin{array}{ll} \\
-            Q = xW_q^T \\
-            K = xW_q^T \\
-            V = xW_q^T \\
-            MultiHeadAttention(x) = concatenate(Attention_1(Q, K, V), ..., Attention_n(Q, K, V))W_o^T \\
-        \end{array}
-    
-    where
-
-    .. math::
-            Attention(Q, K, V) = softmax(\frac{QK^T}{\sqrt{N}}) \cdot V
+        MultiHeadAttention(x) = concatenate(Head_1(x), ..., Head_n(x))W_o^T
 
     Shapes:
         - Input :math:`(B, S, C_{in})`
@@ -301,7 +291,6 @@ class MultiHeadAttention(Container):
         - :math:`B` ... batch axis
         - :math:`S` ... sequence
         - :math:`C_{in}` ... input channels
-        - :math:`N` ... number of attention heads 
 
     Parameters
     ----------
@@ -343,82 +332,135 @@ class MultiHeadAttention(Container):
         label: Optional[str] = None,
         training: bool = False,
     ) -> None:
-        if in_channels % n_heads != 0:
+        head_size = in_channels // n_heads
+        if head_size * n_heads != in_channels:
             raise ValueError("Number of input channels must be divisible by number of heads.")
 
-        self.n_heads = n_heads
-        self.mask = Buffer(mask) if mask is not None else None
-        self.dropout_p = dropout_p
-        self.dtype = Dtype(dtype)
-
-        # Input projection
-        self.query = Linear(in_channels, in_channels, bias, self.dtype, "QueryProj", training)
-        self.key = Linear(in_channels, in_channels, bias, self.dtype, "KeyProj", training)
-        self.value = Linear(in_channels, in_channels, bias, self.dtype, "ValueProj", training)
-
-        # Output projection
-        self.out_proj = Linear(in_channels, in_channels, bias, self.dtype, "OutProj", training)
-        w = uniform((in_channels, in_channels), -out_proj_std, out_proj_std, self.dtype)
+        head_kwargs = {
+            "in_channels": in_channels,
+            "h_channels": head_size,
+            "mask": mask,
+            "dropout_p": dropout_p,
+            "bias": bias,
+            "dtype": dtype,
+            "training": training,
+        }
+        self.heads = [AttentionHead(**head_kwargs) for _ in range(n_heads)]
+        self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj", training)
+        w = uniform((in_channels, in_channels), -out_proj_std, out_proj_std, dtype)
         self.out_proj.w = Parameter(w)
+        self.dropout = Dropout(dropout_p, training=training) if dropout_p > 0 else None
 
-        modules: list[Module] = [self.query, self.key, self.value, self.out_proj]
-
-        # Optional dropout
-        if dropout_p > 0:
-            self.dropout = Dropout(dropout_p, training=training)
-            modules.append(self.dropout)
-
+        modules = [*self.heads, self.out_proj] + ([self.dropout] if dropout_p > 0 else [])
         super().__init__(*modules, label=label, training=training)
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = concatenate([h(x) for h in self.heads])
+        y = self.out_proj(x)
+        if self.dropout is not None:
+            y = self.dropout(y)
+
+        def _backward(dy: Tensor) -> Tensor:
+            if self.dropout is not None:
+                dy = self.dropout.backward(dy)
+            dy = self.out_proj.backward(dy)
+            dy_splits = split(dy, len(self.heads))
+            return tensorsum(h.backward(s) for h, s in zip(self.heads, dy_splits))
+
+        self._backward = _backward
+
+        return y
+
+
+class AttentionHead(Container):
+    r"""Attention Head for self-attention.
+
+    .. math::
+        \begin{array}{ll} \\
+            Q = xW_q^T \\
+            K = xW_q^T \\
+            V = xW_q^T \\
+            Attention(Q, K, V) = softmax(\frac{QK^T}{\sqrt{|C_h|}}) \cdot V \\
+        \end{array}
+        
+    Shapes:
+        - Input :math:`(B, S, C_{in})`
+        - Output :math:`(B, S, C_h)`
+    where
+        - :math:`B` ... batch axis
+        - :math:`S` ... sequence
+        - :math:`C_{in}` ... input channels
+        - :math:`C_h` ... hidden channels
+
+    Parameters
+    ----------
+    in_channels : int
+        Number of input channels.
+    h_channels : int
+        Number of hidden channels (head size) of the attention head.
+    mask : Tensor, optional
+        Mask for the attention. Defaults to ``None``.
+    dropout_p : float, optional
+        Dropout probability of attention output weights. Defaults to ``0``.
+    bias : bool, optional
+        Whether to use bias values to input projection. Defaults to ``True``.
+    dtype: DtypeLike, optional
+        Datatype of weights and biases. Defaults to :class:`compyute.float32`.
+    label: str, optional
+        Module label. Defaults to ``None``. If `None`, the class name is used.
+    training: bool, optional
+        Whether the module should be in training mode. Defaults to ``False``.
+
+
+    .. note::
+        All weights are initialized from :math:`\mathcal{U}(-k, k)`, where
+        :math:`k = \sqrt{\frac{1}{C_{in} * k * k}}`. Biases are initialized as zeros.
+    """
+
+    def __init__(
+        self,
+        in_channels: int,
+        h_channels: int,
+        mask: Optional[Tensor] = None,
+        dropout_p: float = 0,
+        bias: bool = True,
+        dtype: _DtypeLike = Dtype.FLOAT32,
+        label: Optional[str] = None,
+        training: bool = False,
+    ) -> None:
+        super().__init__(label=label, training=training)
+        self.dtype = Dtype(dtype)
+        self.dropout_p = dropout_p
+        self.mask = Buffer(mask) if mask is not None else None
+
+        self.query = Linear(in_channels, h_channels, bias, dtype, "QueryProj", training)
+        self.key = Linear(in_channels, h_channels, bias, dtype, "KeyProj", training)
+        self.value = Linear(in_channels, h_channels, bias, dtype, "ValueProj", training)
 
     def forward(self, x: Tensor) -> Tensor:
         self._check_dims(x, [3])
         x = x.to_type(self.dtype)
-        head_grad_functions, ys = [], []
-        sdp_dropout_p = self.dropout_p if self._training else 0
 
-        # input projection (B, S, C_in) -> (B, S, C_in)
-        q, k, v = self.query(x), self.key(x), self.value(x)
+        # input projections
+        q = self.query(x)
+        k = self.key(x)
+        v = self.value(x)
 
-        # split projections into heads (B, S, C_in) -> (B, S, C_in // n_heads)
-        q_heads = split(q, self.n_heads)
-        k_heads = split(k, self.n_heads)
-        v_heads = split(v, self.n_heads)
+        # attention
+        dropout_p = self.dropout_p if self._training else 0
+        y, attn_backward = scaled_dot_product_attention(
+            q, k, v, self.mask, dropout_p, self._training
+        )
 
-        # multi head attention: compute attention weights for each head, concat results
-        for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
-            y_head, attn_grad_fn = scaled_dot_product_attention(
-                q_head, k_head, v_head, self.mask, sdp_dropout_p, self._training
-            )
-            ys.append(y_head)
-            head_grad_functions.append(attn_grad_fn)
-        y = concatenate(ys)
-
-        # output projection (B, S, C_in) -> (B, S, C_in)
-        y = self.out_proj(y)
-        if self.dropout_p > 0:
-            y = self.dropout(y)
-
-        if self._training:
+        if self._training and attn_backward is not None:
 
             def _backward(dy: Tensor) -> Tensor:
                 dy = dy.to_type(self.dtype)
 
-                if self.dropout_p > 0:
-                    dy = self.dropout.backward(dy)
-                dy = self.out_proj.backward(dy)
+                # attention gradients
+                dq, dk, dv = attn_backward(dy)
 
-                dy_splits = split(dy, self.n_heads)
-                dq_heads, dk_heads, dv_heads = [], [], []
-                for grad_fn, dy_head in zip(head_grad_functions, dy_splits):
-                    dq_head, dk_head, dv_head = grad_fn(dy_head)
-                    dq_heads.append(dq_head)
-                    dk_heads.append(dk_head)
-                    dv_heads.append(dv_head)
-
-                dq = concatenate(dq_heads)
-                dk = concatenate(dk_heads)
-                dv = concatenate(dv_heads)
-
+                # input projection gradients
                 dx1 = self.query.backward(dq)
                 dx2 = self.key.backward(dk)
                 dx3 = self.value.backward(dv)
@@ -464,16 +506,16 @@ def scaled_dot_product_attention(
 
     See Also
     ----------
-    :class:`compyute.nn.MultiHeadAttention`
+    :class:`compyute.nn.AttentionHead`
     """
     scale_factor = q.shape[-1] ** -0.5
 
     qk = q @ k.T * scale_factor
     if mask is not None:
         qk += mask[: q.shape[1], : q.shape[1]]  # truncate mask for smaller context sizes
-    attn_weights, sm_grad_fn = softmax(qk, return_grad_fn)
+    attn_weights, sm_grad_func = softmax(qk, return_grad_fn)
     if dropout_p > 0:
-        attn_weights, drouput_grad_fn = dropout(attn_weights, dropout_p, return_grad_fn)
+        attn_weights, do_grad_func = dropout(attn_weights, dropout_p, return_grad_fn)
     y = attn_weights @ v
 
     if return_grad_fn:
@@ -482,8 +524,8 @@ def scaled_dot_product_attention(
             # attention gradients
             dattn_weights = dy @ v.T
             if dropout_p > 0:
-                dattn_weights = drouput_grad_fn(dattn_weights)
-            dqk = sm_grad_fn(dattn_weights) * scale_factor
+                dattn_weights = do_grad_func(dattn_weights)
+            dqk = sm_grad_func(dattn_weights) * scale_factor
 
             # query, key, value gradients
             dq = dqk @ k
