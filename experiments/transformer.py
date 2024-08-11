@@ -2,22 +2,40 @@
 
 from typing import Callable, Optional
 
-from compyute.base_tensor import Tensor
+from compyute.base_tensor import Tensor, _ShapeLike
 from compyute.dtypes import Dtype, _DtypeLike
 from compyute.nn.functional import dropout, softmax
 from compyute.nn.modules.activations import _ActivationLike, get_activation
-from compyute.nn.modules.containers import Container, Residual, Sequential
+from compyute.nn.modules.containers import ResidualConnection, Sequential
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module
-from compyute.nn.modules.normalization import Layernorm
+from compyute.nn.modules.normalization import LayerNorm
 from compyute.nn.modules.regularization import Dropout
 from compyute.nn.parameter import Buffer, Parameter
 from compyute.random.random import normal, uniform
-from compyute.tensor_functions.creating import arange, concatenate, split, zeros_like
+from compyute.tensor_ops.creating import arange, concatenate, full, split, zeros_like
+from compyute.tensor_ops.selecting import triu
+from compyute.tensor_ops.transforming import einsum
 
 
-class Transformer(Container):
+def get_causal_mask(shape: _ShapeLike) -> Tensor:
+    """Returns a causal mask used for the self-attention mechanism.
+
+    Parameters
+    ----------
+    shape : _ShapeLike
+        Shape of the mask.
+
+    Returns
+    -------
+    Tensor
+        Causal mask.
+    """
+    return triu(full(shape, value=float("-inf"), dtype=Dtype.FLOAT32), d=1)
+
+
+class Transformer(Module):
     r"""Docoder-only transformer model.
 
     Parameters
@@ -30,10 +48,13 @@ class Transformer(Container):
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
-    sequence_length : int
-        Length of the input sequence.
+    n_blocks : int
+        Number of transformer blocks.
+    max_sequence_length : int
+        Maximum possible length of the input sequence.
     mask : Tensor, optional
-        Mask for the attention. Defaults to ``None``.
+        Attention-mask. Defaults to ``None``.
+        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability. Defaults to ``0.2``.
     activation : _ActivationLike
@@ -49,13 +70,23 @@ class Transformer(Container):
         Datatype of weights and biases. Defaults to :class:`compyute.float32`.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
-    training: bool, optional
-        Whether the module should be in training mode. Defaults to ``False``.
 
 
     .. note::
-        All weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in} * k * k}}`. Biases are initialized as zeros.
+        Embedding weights are initialized from :math:`\mathcal{N}(0, \sqrt{\frac{1}{C_{in})`, where
+        :math:`C_{in}` is the embedding dimension.
+        Output projection weights of residual blocks are initialized from :math:`\mathcal{U}(-k, k)`
+        where :math:`k = \sqrt{\frac{1}{C_{in} * N}}` and :math:`N` is the number of residual connecitons.
+        Biases are initialized as zeros.
+
+    .. note::
+        Dropout is applied to the output of each residual block and to attention weights.
+
+    .. note::
+        The weights of the token embedding and the language model head are shared.
+
+    .. note::
+        Normalization is applied before weight layers within residual blocks.
     """
 
     def __init__(
@@ -64,7 +95,7 @@ class Transformer(Container):
         embedding_dim: int,
         feedforward_channels: int,
         n_heads: int,
-        n_layers: int,
+        n_blocks: int,
         sequence_length: int,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
@@ -74,45 +105,42 @@ class Transformer(Container):
         layernorm_eps: float = 1e-5,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
-        training: bool = False,
     ) -> None:
-
+        super().__init__(label)
+        w_std = embedding_dim**-0.5
         block_kwargs = {
             "in_channels": embedding_dim,
             "feedforward_channels": feedforward_channels,
             "n_heads": n_heads,
             "mask": mask,
             "dropout_p": dropout_p,
-            "out_proj_std": 0.02 * (2 * n_layers) ** -0.5,
+            "out_proj_std": w_std * (2 * n_blocks) ** -0.5,  # scaling to compensate variance
             "activation": activation,
             "attention_bias": attention_bias,
             "feedforward_bias": feedforward_bias,
             "layernorm_eps": layernorm_eps,
             "dtype": dtype,
-            "label": "TransformerBlock",
-            "training": training,
         }
 
         # Embeddings
-        self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding", training)
-        self.token_emb.w = Parameter(normal((n_embeddings, embedding_dim), std=0.02, dtype=dtype))
+        self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
+        self.token_emb.w = Parameter(normal((n_embeddings, embedding_dim), std=w_std, dtype=dtype))
 
-        self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding", training)
-        self.pos_emb.w = Parameter(normal((n_embeddings, embedding_dim), std=0.01, dtype=dtype))
+        self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding")
+        self.pos_emb.w = Parameter(normal((sequence_length, embedding_dim), std=w_std, dtype=dtype))
 
         # Transformer blocks
-        self.blocks = [TransformerBlock(**block_kwargs) for _ in range(n_layers)]
+        self.blocks = [TransformerBlock(**block_kwargs) for _ in range(n_blocks)]
 
         # Language model head
-        self.ln = Layernorm((embedding_dim,), layernorm_eps, dtype, training=training)
-        self.lm_head = Linear(embedding_dim, n_embeddings, False, dtype, "LmHead", training)
+        self.ln = LayerNorm((embedding_dim,), layernorm_eps, dtype)
+        self.lm_head = Linear(embedding_dim, n_embeddings, False, dtype, "LmHead")
         self.lm_head.w = self.token_emb.w  # weight sharing
 
-        modules = [self.token_emb, self.pos_emb, *self.blocks, self.ln, self.lm_head]
-        super().__init__(*modules, label=label, training=training)
+        self.modules = [self.token_emb, self.pos_emb, *self.blocks, self.ln, self.lm_head]
 
     def forward(self, x: Tensor) -> Tensor:
-        pos = arange(x.shape[-1], device=x.device)
+        pos = arange(x.shape[-1], dtype=Dtype.INT64, device=x.device)
         x = self.token_emb(x) + self.pos_emb(pos)
         for block in self.blocks:
             x = block(x)
@@ -144,12 +172,14 @@ class TransformerBlock(Sequential):
     n_heads : int
         Number of attention heads.
     mask : Tensor, optional
-        Mask for the attention. Defaults to ``None``.
+        Attention-mask. Defaults to ``None``.
+        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability. Defaults to ``0.2``.
     out_proj_std : float, optional
-        Weight scale factor for the output projection to compensate the growing
-        variance of the residual block. Defaults to ``0.02``.
+        Standard deviation of output projection weights to compensate the growing
+        variance of the residual block. Defaults to ``None``.
+        If ``None``, the default initialization of ``Linear`` is used.
     activation : _ActivationLike
         Activation function to use in the feedforward blocks. Defaults to ``relu``.
         See :ref:`activations` for more details.
@@ -164,8 +194,6 @@ class TransformerBlock(Sequential):
         Datatype of weights and biases. Defaults to :class:`compyute.float32`.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
-    training: bool, optional
-        Whether the module should be in training mode. Defaults to ``False``.
     """
 
     def __init__(
@@ -182,50 +210,30 @@ class TransformerBlock(Sequential):
         layernorm_eps: float = 1e-5,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
-        training: bool = False,
     ) -> None:
-        ln_kwargs = {
-            "normalized_shape": (in_channels,),
-            "eps": layernorm_eps,
-            "dtype": dtype,
-            "training": training,
-        }
+        ln_kwargs = {"normalized_shape": (in_channels,), "eps": layernorm_eps, "dtype": dtype}
 
-        mha_kwargs = {
-            "in_channels": in_channels,
-            "n_heads": n_heads,
-            "mask": mask,
-            "dropout_p": dropout_p,
-            "out_proj_std": out_proj_std,
-            "bias": attention_bias,
-            "dtype": dtype,
-            "training": training,
-        }
-
-        feedforward_kwargs = {
-            "in_channels": in_channels,
-            "h_channels": feedforward_channels,
-            "dropout_p": dropout_p,
-            "out_proj_std": out_proj_std,
-            "activation": activation,
-            "bias": feedforward_bias,
-            "dtype": dtype,
-            "training": training,
-        }
-
-        attention_block = Residual(
-            Layernorm(**ln_kwargs),
-            MultiHeadAttention(**mha_kwargs),
-            training=training,
+        attention_block = ResidualConnection(
+            LayerNorm(**ln_kwargs),
+            MultiHeadAttention(
+                in_channels,
+                n_heads,
+                mask=mask,
+                dropout_p=dropout_p,
+                out_proj_std=out_proj_std,
+                bias=attention_bias,
+                dtype=dtype,
+            ),
+            Dropout(dropout_p),
         )
 
-        feedforward_block = Residual(
-            Layernorm(**ln_kwargs),
-            FeedForward(**feedforward_kwargs),
-            training=training,
+        feedforward_block = ResidualConnection(
+            LayerNorm(**ln_kwargs),
+            FeedForward(in_channels, feedforward_channels, out_proj_std, activation, feedforward_bias, dtype),
+            Dropout(dropout_p),
         )
 
-        super().__init__(attention_block, feedforward_block, label=label, training=training)
+        super().__init__(attention_block, feedforward_block, label=label)
 
 
 class FeedForward(Sequential):
@@ -237,11 +245,10 @@ class FeedForward(Sequential):
         Number of input channels.
     h_channels : int
         Number of channels of the hidden layer.
-    dropout_p : float, optional
-        Dropout probability. Defaults to ``0``.
     out_proj_std : float, optional
-        Weight scale factor for the output projection to compensate the growing
-        variance of the residual block. Defaults to ``0.02``.
+        Standard deviation of output projection weights to compensate the growing
+        variance of the residual block. Defaults to ``None``.
+        If ``None``, the default initialization of ``Linear`` is used.
     activation : _ActivationLike
         Activation function to use. Defaults to ``relu``.
         See :ref:`activations` for more details.
@@ -251,34 +258,28 @@ class FeedForward(Sequential):
         Datatype of weights and biases. Defaults to :class:`compyute.float32`.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
-    training: bool, optional
-        Whether the module should be in training mode. Defaults to ``False``.
     """
 
     def __init__(
         self,
         in_channels: int,
         h_channels: int,
-        dropout_p: float = 0,
-        out_proj_std: float = 0.02,
+        out_proj_std: Optional[float] = None,
         activation: _ActivationLike = "relu",
         bias: bool = True,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
-        training: bool = False,
     ) -> None:
-        lin = Linear(in_channels, h_channels, bias, dtype, training=training)
-        act = get_activation(activation)(training=training)
-        out_proj = Linear(h_channels, in_channels, bias, dtype, "OutProj", training)
-        w = uniform((in_channels, h_channels), -out_proj_std, out_proj_std, dtype)
-        out_proj.w = Parameter(w)
-        drop = Dropout(dropout_p, training=training) if dropout_p > 0 else None
+        linear = Linear(in_channels, h_channels, bias, dtype)
+        act = get_activation(activation)()
+        out_proj = Linear(h_channels, in_channels, bias, dtype, "OutProj")
+        if out_proj_std is not None:
+            out_proj.w = Parameter(uniform((in_channels, h_channels), -out_proj_std, out_proj_std, dtype))
 
-        modules = [lin, act, out_proj] + [drop] if drop is not None else []
-        super().__init__(*modules, label=label, training=training)
+        super().__init__(linear, act, out_proj, label=label)
 
 
-class MultiHeadAttention(Container):
+class MultiHeadAttention(Module):
     r"""Multi Head Attention.
 
     .. math::
@@ -286,7 +287,7 @@ class MultiHeadAttention(Container):
             Q = xW_q^T \\
             K = xW_q^T \\
             V = xW_q^T \\
-            MultiHeadAttention(x) = concatenate(Attention_1(Q, K, V), ..., Attention_n(Q, K, V))W_o^T \\
+            MultiHeadAttention(x) = concatenate(Attention_1(xW_q^T, xW_k^T, xW_v^T), ..., Attention_n(xW_q^T, xW_k^T, xW_v^T))W_o^T \\
         \end{array}
     
     where
@@ -310,20 +311,20 @@ class MultiHeadAttention(Container):
     n_heads : int
         Number of attention heads.
     mask : Tensor, optional
-        Mask for the attention. Defaults to ``None``.
+        Attention-mask. Defaults to ``None``.
+        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability. Defaults to ``0``.
     out_proj_std : float, optional
-        Weight scale factor for the output projection to compensate the growing
-        variance of the residual block. Defaults to ``0.02``.
+        Standard deviation of output projection weights to compensate the growing
+        variance of the residual block. Defaults to ``None``.
+        If ``None``, the default initialization of ``Linear`` is used.
     bias : bool, optional
         Whether to use bias values to input and output projection. Defaults to ``True``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to :class:`compyute.float32`.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
-    training: bool, optional
-        Whether the module should be in training mode. Defaults to ``False``.
 
 
     .. note::
@@ -341,43 +342,34 @@ class MultiHeadAttention(Container):
         bias: bool = True,
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
-        training: bool = False,
     ) -> None:
         if in_channels % n_heads != 0:
             raise ValueError("Number of input channels must be divisible by number of heads.")
-
+        super().__init__(label)
         self.n_heads = n_heads
         self.mask = Buffer(mask) if mask is not None else None
         self.dropout_p = dropout_p
-        self.dtype = Dtype(dtype)
+        self.attn_w: Optional[list[Tensor]] = None
 
-        # Input projection
-        self.query = Linear(in_channels, in_channels, bias, self.dtype, "QueryProj", training)
-        self.key = Linear(in_channels, in_channels, bias, self.dtype, "KeyProj", training)
-        self.value = Linear(in_channels, in_channels, bias, self.dtype, "ValueProj", training)
+        self.query_proj = Linear(in_channels, in_channels, bias, dtype, "QueryProj")
+        self.key_proj = Linear(in_channels, in_channels, bias, dtype, "KeyProj")
+        self.value_proj = Linear(in_channels, in_channels, bias, dtype, "ValueProj")
+        self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj")
+        if out_proj_std is not None:
+            self.out_proj.w = Parameter(uniform((in_channels, in_channels), -out_proj_std, out_proj_std, dtype))
 
-        # Output projection
-        self.out_proj = Linear(in_channels, in_channels, bias, self.dtype, "OutProj", training)
-        w = uniform((in_channels, in_channels), -out_proj_std, out_proj_std, self.dtype)
-        self.out_proj.w = Parameter(w)
-
-        modules: list[Module] = [self.query, self.key, self.value, self.out_proj]
-
-        # Optional dropout
-        if dropout_p > 0:
-            self.dropout = Dropout(dropout_p, training=training)
-            modules.append(self.dropout)
-
-        super().__init__(*modules, label=label, training=training)
+        self.modules = [self.query_proj, self.key_proj, self.value_proj, self.out_proj]
 
     def forward(self, x: Tensor) -> Tensor:
         self._check_dims(x, [3])
-        x = x.to_type(self.dtype)
-        head_grad_functions, ys = [], []
+
+        head_grad_functions, ys, attn_w = [], [], []
         sdp_dropout_p = self.dropout_p if self._training else 0
 
-        # input projection (B, S, C_in) -> (B, S, C_in)
-        q, k, v = self.query(x), self.key(x), self.value(x)
+        # input projection for self-attention (B, S, C_in) -> (B, S, C_in)
+        q = self.query_proj(x)
+        k = self.key_proj(x)
+        v = self.value_proj(x)
 
         # split projections into heads (B, S, C_in) -> (B, S, C_in // n_heads)
         q_heads = split(q, self.n_heads)
@@ -386,27 +378,24 @@ class MultiHeadAttention(Container):
 
         # multi head attention: compute attention weights for each head, concat results
         for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
-            y_head, attn_grad_fn = scaled_dot_product_attention(
-                q_head, k_head, v_head, self.mask, sdp_dropout_p, self._training
+            y_head, attn_w_head, attn_grad_fn = scaled_dot_product_attention(
+                q_head, k_head, v_head, self.mask, sdp_dropout_p, self.retain_values, self._training
             )
             ys.append(y_head)
+            attn_w.append(attn_w_head)
             head_grad_functions.append(attn_grad_fn)
+
         y = concatenate(ys)
+        if self.retain_values:
+            self.attn_w = attn_w
 
         # output projection (B, S, C_in) -> (B, S, C_in)
         y = self.out_proj(y)
-        if self.dropout_p > 0:
-            y = self.dropout(y)
 
         if self._training:
 
             def _backward(dy: Tensor) -> Tensor:
-                dy = dy.to_type(self.dtype)
-
-                if self.dropout_p > 0:
-                    dy = self.dropout.backward(dy)
                 dy = self.out_proj.backward(dy)
-
                 dy_splits = split(dy, self.n_heads)
                 dq_heads, dk_heads, dv_heads = [], [], []
                 for grad_fn, dy_head in zip(head_grad_functions, dy_splits):
@@ -419,9 +408,9 @@ class MultiHeadAttention(Container):
                 dk = concatenate(dk_heads)
                 dv = concatenate(dv_heads)
 
-                dx1 = self.query.backward(dq)
-                dx2 = self.key.backward(dk)
-                dx3 = self.value.backward(dv)
+                dx1 = self.query_proj.backward(dq)
+                dx2 = self.key_proj.backward(dk)
+                dx3 = self.value_proj.backward(dv)
 
                 return dx1 + dx2 + dx3
 
@@ -436,9 +425,10 @@ def scaled_dot_product_attention(
     v: Tensor,
     mask: Optional[Tensor] = None,
     dropout_p: float = 0,
+    return_attn_w: bool = False,
     return_grad_fn: bool = False,
-) -> tuple[Tensor, Optional[Callable[[Tensor], tuple[Tensor, Tensor, Tensor]]]]:
-    """Computes the scaled dot product attention scores.
+) -> tuple[Tensor, Optional[Tensor], Optional[Callable[[Tensor], tuple[Tensor, Tensor, Tensor]]]]:
+    r"""Computes the scaled dot product attention scores.
 
     Parameters
     ----------
@@ -449,9 +439,12 @@ def scaled_dot_product_attention(
     v : Tensor
         Value tensor.
     mask : Tensor, optional
-        Mask for the attention. Defaults to ``None``.
+        Attention-mask. Defaults to ``None``.
+        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability of attention weights. Defaults to ``0``.
+    return_attn_w : bool, optional
+        Whether to also return the computed attention weights. Defaults to ``False``.
     return_grad_fn : bool, optional
         Whether to also return the according gradient function. Defaults to ``False``.
 
@@ -466,32 +459,33 @@ def scaled_dot_product_attention(
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    scale_factor = q.shape[-1] ** -0.5
+    _, seq_len, head_size = q.shape
+    scale_factor = head_size**-0.5
 
-    qk = q @ k.T * scale_factor
+    attn_w = q @ k.T * scale_factor
     if mask is not None:
-        qk += mask[: q.shape[1], : q.shape[1]]  # truncate mask for smaller context sizes
-    attn_weights, sm_grad_fn = softmax(qk, return_grad_fn)
+        attn_w += mask[:seq_len, :seq_len]  # truncate mask for smaller context lengths
+    attn_w, sm_grad_fn = softmax(attn_w, return_grad_fn)
     if dropout_p > 0:
-        attn_weights, drouput_grad_fn = dropout(attn_weights, dropout_p, return_grad_fn)
-    y = attn_weights @ v
+        attn_w, drouput_grad_fn = dropout(attn_w, dropout_p, return_grad_fn)
+    y = attn_w @ v
 
     if return_grad_fn:
 
         def grad_fn(dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
             # attention gradients
-            dattn_weights = dy @ v.T
+            dattn_w = dy @ v.T
             if dropout_p > 0:
-                dattn_weights = drouput_grad_fn(dattn_weights)
-            dqk = sm_grad_fn(dattn_weights) * scale_factor
+                dattn_w = drouput_grad_fn(dattn_w)
+            dattn_w = sm_grad_fn(dattn_w) * scale_factor
 
             # query, key, value gradients
-            dq = dqk @ k
-            dk = dqk.T @ q
-            dv = attn_weights.T @ dy
+            dq = dattn_w @ k
+            dk = dattn_w.T @ q
+            dv = attn_w.T @ dy
 
             return dq, dk, dv
 
-        return y, grad_fn
+        return y, attn_w if return_attn_w else None, grad_fn
 
-    return y, None
+    return y, attn_w if return_attn_w else None, None
