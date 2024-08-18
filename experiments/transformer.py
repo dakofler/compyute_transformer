@@ -10,13 +10,14 @@ from compyute.nn.modules.activations import ReLU
 from compyute.nn.modules.containers import ResidualConnection, Sequential
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
-from compyute.nn.modules.module import Module, validate_input_axes
+from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
 from compyute.nn.modules.normalization import LayerNorm
 from compyute.nn.modules.regularization import Dropout
-from compyute.nn.parameter import Buffer, Parameter
-from compyute.random.random import normal
-from compyute.tensor_ops.creating import arange, concatenate, full, split, zeros_like
+from compyute.nn.parameter import Buffer
+from compyute.nn.utils.initializers import Normal
+from compyute.tensor_ops.creating import arange, concat, full, split
 from compyute.tensor_ops.selecting import triu
+from compyute.tensor_ops.transforming import sum as cpsum
 
 
 def get_causal_mask(shape: _ShapeLike) -> Tensor:
@@ -64,11 +65,9 @@ class Transformer(Module):
 
 
     .. note::
-        Embedding weights are initialized from :math:`\mathcal{N}(0, \sqrt{\frac{1}{C_{in})`, where
-        :math:`C_{in}` is the embedding dimension.
-        Output projection weights of residual blocks are initialized from :math:`\mathcal{U}(-k, k)`
-        where :math:`k = \sqrt{\frac{1}{C_{in} * N}}` and :math:`N` is the number of residual connecitons.
-        Biases are initialized as zeros.
+        Embeddings are initialized from :math:`\mathcal{N}(0, \sqrt{\frac{1}{C_{in}}})`.
+        Linear layer weights are initialized from :math:`\mathcal{U}(-k, k)`, where
+        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
 
     .. note::
         Dropout is applied to the output of each residual block and to attention weights.
@@ -77,7 +76,8 @@ class Transformer(Module):
         The weights of the token embedding and the language model head are shared.
 
     .. note::
-        Normalization is applied before weight layers within residual blocks.
+        Normalization is applied before weight layers within
+        residual blocks (pre-weight-normalization).
     """
 
     def __init__(
@@ -94,7 +94,18 @@ class Transformer(Module):
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
+
+        # Embeddings
+        self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
+        self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding")
+
+        # initialize embedding weights
         w_std = 1 / math.sqrt(embedding_dim)
+        init = Normal(std=w_std)
+        init(self.token_emb.w)
+        init(self.pos_emb.w)
+
+        # Transformer blocks
         block_kwargs = {
             "in_channels": embedding_dim,
             "feedforward_channels": feedforward_channels,
@@ -103,33 +114,14 @@ class Transformer(Module):
             "dropout_p": dropout_p,
             "dtype": dtype,
         }
-
-        # Embeddings
-        self.token_emb = Embedding(n_embeddings, embedding_dim, label="TokenEmbedding")
-        self.token_emb.w = Parameter(
-            normal((n_embeddings, embedding_dim), std=w_std, dtype=dtype)
+        self.blocks = ModuleList(
+            TransformerBlock(**block_kwargs) for _ in range(n_blocks)
         )
-
-        self.pos_emb = Embedding(sequence_length, embedding_dim, label="PosEmbedding")
-        self.pos_emb.w = Parameter(
-            normal((sequence_length, embedding_dim), std=w_std, dtype=dtype)
-        )
-
-        # Transformer blocks
-        self.blocks = [TransformerBlock(**block_kwargs) for _ in range(n_blocks)]
 
         # Language model head
         self.ln = LayerNorm((embedding_dim,), dtype=dtype)
-        self.lm_head = Linear(embedding_dim, n_embeddings, label="LmHead")
+        self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
-
-        self.modules = [
-            self.token_emb,
-            self.pos_emb,
-            *self.blocks,
-            self.ln,
-            self.lm_head,
-        ]
 
     def forward(self, x: Tensor) -> Tensor:
         pos = arange(x.shape[-1], dtype=Dtype.INT64, device=x.device)
@@ -138,13 +130,12 @@ class Transformer(Module):
             x = block(x)
         y = self.lm_head(self.ln(x))
 
-        def _backward(dy: Tensor) -> Tensor:
+        def _backward(dy: Tensor) -> None:
             dy = self.ln.backward(self.lm_head.backward(dy))
             for module in reversed(self.blocks):
                 dy = module.backward(dy)
             self.token_emb.backward(dy)
-            self.pos_emb.backward(dy)
-            return zeros_like(x)  # dummy output
+            self.pos_emb.backward(cpsum(dy, axis=0))  # undo broadcasting by summing
 
         self._backward = _backward
 
@@ -184,22 +175,15 @@ class TransformerBlock(Sequential):
         dtype: _DtypeLike = Dtype.FLOAT32,
         label: Optional[str] = None,
     ) -> None:
-        ln_kwargs = {"normalized_shape": (in_channels,), "dtype": dtype}
 
         attention_block = ResidualConnection(
-            LayerNorm(**ln_kwargs),
-            MultiHeadAttention(
-                in_channels,
-                n_heads,
-                mask=mask,
-                dropout_p=dropout_p,
-                dtype=dtype,
-            ),
+            LayerNorm((in_channels,), dtype=dtype),
+            MultiHeadAttention(in_channels, n_heads, mask, dropout_p, dtype),
             Dropout(dropout_p),
         )
 
         feedforward_block = ResidualConnection(
-            LayerNorm(**ln_kwargs),
+            LayerNorm((in_channels,), dtype=dtype),
             FeedForward(in_channels, feedforward_channels, dtype),
             Dropout(dropout_p),
         )
@@ -230,27 +214,26 @@ class FeedForward(Sequential):
         label: Optional[str] = None,
     ) -> None:
         linear = Linear(in_channels, h_channels, dtype=dtype)
-        act = ReLU()
-        out_proj = Linear(h_channels, in_channels, label="OutProj")
+        activation = ReLU()
+        out_proj = Linear(h_channels, in_channels, dtype=dtype, label="OutProj")
 
-        super().__init__(linear, act, out_proj, label=label)
+        super().__init__(linear, activation, out_proj, label=label)
 
 
 class MultiHeadAttention(Module):
-    r"""Multi Head Attention.
+    r"""Multi Head Self-Attention as described by
+    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
 
     .. math::
         \begin{array}{ll} \\
-            Q = xW_q^T \\
-            K = xW_q^T \\
-            V = xW_q^T \\
-            MultiHeadAttention(x) = concatenate(Attention_1(xW_q^T, xW_k^T, xW_v^T), ..., Attention_n(xW_q^T, xW_k^T, xW_v^T))W_o^T \\
+            Q = xW_Q^T \\
+            K = xW_K^T \\
+            V = xW_V^T \\
+            \text{MultiHeadAttention}(x) = \text{concat}(\text{Attention}(Q_1, K_1, V_1), ..., \text{Attention}(Q_n, K_n, V_n))W_o^T \\
+            \text{Attention}(Q, K, V) = \text{softmax}(\frac{QK^T}{\sqrt{N}}) \cdot V \\
         \end{array}
-    
-    where
 
-    .. math::
-            Attention(Q, K, V) = softmax(\frac{QK^T}{\sqrt{N}}) \cdot V
+    where :math:`N` is the number of attention heads.
 
     Shapes:
         - Input :math:`(B, S, C_{in})`
@@ -259,7 +242,6 @@ class MultiHeadAttention(Module):
         - :math:`B` ... batch axis
         - :math:`S` ... sequence
         - :math:`C_{in}` ... input channels
-        - :math:`N` ... number of attention heads 
 
     Parameters
     ----------
@@ -280,7 +262,10 @@ class MultiHeadAttention(Module):
 
     .. note::
         All weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in} * k * k}}`. Biases are initialized as zeros.
+        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
+
+    .. note::
+        Input projections do not use bias.
     """
 
     def __init__(
@@ -293,26 +278,23 @@ class MultiHeadAttention(Module):
         label: Optional[str] = None,
     ) -> None:
         if in_channels % n_heads != 0:
-            raise ValueError(
-                "Number of input channels must be divisible by number of heads."
-            )
+            raise ValueError("Number of input channels must be divisible by n_heads.")
         super().__init__(label)
+
         self.n_heads = n_heads
         self.mask = Buffer(mask) if mask is not None else None
         self.dropout_p = dropout_p
-        self.attn_w: Optional[list[Tensor]] = None
+        self.attn_w: list[Tensor | None] = []
 
         self.query_proj = Linear(in_channels, in_channels, False, dtype, "QueryProj")
         self.key_proj = Linear(in_channels, in_channels, False, dtype, "KeyProj")
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
 
-        self.modules = [self.query_proj, self.key_proj, self.value_proj, self.out_proj]
-
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
 
-        head_grad_functions, ys, attn_w = [], [], []
+        head_grad_functions, ys = [], []
         sdp_dropout_p = self.dropout_p if self._is_training else 0
 
         # input projection for self-attention (B, S, C_in) -> (B, S, C_in)
@@ -321,9 +303,7 @@ class MultiHeadAttention(Module):
         v = self.value_proj(x)
 
         # split projections into heads (B, S, C_in) -> (B, S, C_in // n_heads)
-        q_heads = split(q, self.n_heads)
-        k_heads = split(k, self.n_heads)
-        v_heads = split(v, self.n_heads)
+        q_heads, k_heads, v_heads = (split(x, self.n_heads) for x in (q, k, v))
 
         # multi head attention: compute attention weights for each head, concat results
         for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
@@ -333,16 +313,14 @@ class MultiHeadAttention(Module):
                 v_head,
                 self.mask,
                 sdp_dropout_p,
-                self.is_retaining_values,
+                self._is_retaining_values,
                 self._is_training,
             )
             ys.append(y_head)
-            attn_w.append(attn_w_head)
+            self.attn_w.append(attn_w_head)
             head_grad_functions.append(attn_grad_fn)
 
-        y = concatenate(ys)
-        if self.is_retaining_values:
-            self.attn_w = attn_w
+        y = concat(ys)
 
         # output projection (B, S, C_in) -> (B, S, C_in)
         y = self.out_proj(y)
@@ -353,15 +331,14 @@ class MultiHeadAttention(Module):
                 dy = self.out_proj.backward(dy)
                 dy_splits = split(dy, self.n_heads)
                 dq_heads, dk_heads, dv_heads = [], [], []
+
                 for grad_fn, dy_head in zip(head_grad_functions, dy_splits):
                     dq_head, dk_head, dv_head = grad_fn(dy_head)
                     dq_heads.append(dq_head)
                     dk_heads.append(dk_head)
                     dv_heads.append(dv_head)
 
-                dq = concatenate(dq_heads)
-                dk = concatenate(dk_heads)
-                dv = concatenate(dv_heads)
+                dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
 
                 dx1 = self.query_proj.backward(dq)
                 dx2 = self.key_proj.backward(dk)
@@ -445,6 +422,6 @@ def scaled_dot_product_attention(
 
             return dq, dk, dv
 
-        return y, attn_w if return_attn_w else None, grad_fn
+        return y, (attn_w if return_attn_w else None), grad_fn
 
-    return y, attn_w if return_attn_w else None, None
+    return y, (attn_w if return_attn_w else None), None
