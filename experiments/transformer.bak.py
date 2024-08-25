@@ -1,11 +1,9 @@
 """transformer neural network module"""
 
 import math
-from typing import Optional
+from typing import Callable, Optional
 
-from compyute.nn.functional.activations import FSoftmax
-from compyute.nn.functional.dropout import FDropout
-from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
+from compyute.nn.functional import dropout, softmax
 from compyute.nn.modules.activations import ReLU
 from compyute.nn.modules.containers import ResidualConnection, Sequential
 from compyute.nn.modules.embedding import Embedding
@@ -102,7 +100,8 @@ class Transformer(Module):
         self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding")
 
         # initialize embedding weights
-        init = Normal(std=1 / math.sqrt(embedding_dim))
+        w_std = 1 / math.sqrt(embedding_dim)
+        init = Normal(std=w_std)
         init(self.token_emb.w)
         init(self.pos_emb.w)
 
@@ -129,14 +128,18 @@ class Transformer(Module):
         x = self.token_emb(x) + self.pos_emb(pos)
         for block in self.blocks:
             x = block(x)
-        return self.lm_head(self.ln(x))
+        y = self.lm_head(self.ln(x))
 
-    def backward(self, dy: Tensor) -> None:
-        dy = self.ln.backward(self.lm_head.backward(dy))
-        for module in reversed(self.blocks):
-            dy = module.backward(dy)
-        self.token_emb.backward(dy)
-        self.pos_emb.backward(cpsum(dy, axis=0))  # undo broadcasting by summing
+        def _backward(dy: Tensor) -> None:
+            dy = self.ln.backward(self.lm_head.backward(dy))
+            for module in reversed(self.blocks):
+                dy = module.backward(dy)
+            self.token_emb.backward(dy)
+            self.pos_emb.backward(cpsum(dy, axis=0))  # undo broadcasting by summing
+
+        self._backward = _backward
+
+        return y
 
 
 class TransformerBlock(Sequential):
@@ -283,120 +286,69 @@ class MultiHeadAttention(Module):
         self.dropout_p = dropout_p
         self.attn_w: list[Tensor | None] = []
 
-        # TODO: find better solution for this
-        self._fcaches = [FunctionCache() for _ in range(n_heads)]
-
         self.query_proj = Linear(in_channels, in_channels, False, dtype, "QueryProj")
         self.key_proj = Linear(in_channels, in_channels, False, dtype, "KeyProj")
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
 
-    def clean(self, force: bool = False) -> None:
-        super().clean(force)
-        for fcache in self._fcaches:
-            fcache.clear()
-
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
 
-        ys = []
-        dropout_p = self.dropout_p if self._is_training else 0
+        head_grad_functions, ys = [], []
+        sdp_dropout_p = self.dropout_p if self._is_training else 0
 
-        # input projection for self-attention
+        # input projection for self-attention (B, S, C_in) -> (B, S, C_in)
         q = self.query_proj(x)
         k = self.key_proj(x)
         v = self.value_proj(x)
 
-        # split projections for each head
+        # split projections into heads (B, S, C_in) -> (B, S, C_in // n_heads)
         q_heads, k_heads, v_heads = (split(x, self.n_heads) for x in (q, k, v))
 
         # multi head attention: compute attention weights for each head, concat results
-        for q_h, k_h, v_h, fcache in zip(q_heads, k_heads, v_heads, self._fcaches):
-            y_h, attn_w_h = FSDPAttention.forward(
-                fcache,
-                q_h,
-                k_h,
-                v_h,
+        for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
+            y_head, attn_w_head, attn_grad_fn = scaled_dot_product_attention(
+                q_head,
+                k_head,
+                v_head,
                 self.mask,
-                dropout_p,
+                sdp_dropout_p,
                 self._is_retaining_values,
+                self._is_training,
             )
-            ys.append(y_h)
-            self.attn_w.append(attn_w_h)
+            ys.append(y_head)
+            self.attn_w.append(attn_w_head)
+            head_grad_functions.append(attn_grad_fn)
+
         y = concat(ys)
 
         # output projection (B, S, C_in) -> (B, S, C_in)
-        return self.out_proj(y)
+        y = self.out_proj(y)
 
-    def backward(self, dy: Tensor) -> Tensor:
-        super().backward(dy)
-        dq_heads, dk_heads, dv_heads = [], [], []
-        dropout_p = self.dropout_p if self._is_training else 0
+        if self._is_training:
 
-        # output gradients
-        dy = self.out_proj.backward(dy)
+            def _backward(dy: Tensor) -> Tensor:
+                dy = self.out_proj.backward(dy)
+                dy_splits = split(dy, self.n_heads)
+                dq_heads, dk_heads, dv_heads = [], [], []
 
-        # split output gradients for each head
-        dy_splits = split(dy, self.n_heads)
+                for grad_fn, dy_head in zip(head_grad_functions, dy_splits):
+                    dq_head, dk_head, dv_head = grad_fn(dy_head)
+                    dq_heads.append(dq_head)
+                    dk_heads.append(dk_head)
+                    dv_heads.append(dv_head)
 
-        # multi head attention gradients
-        for dy_h, fcache in zip(dy_splits, self._fcaches):
-            dq_h, dk_h, dv_h = FSDPAttention.backward(fcache, dy_h, dropout_p)
-            dq_heads.append(dq_h)
-            dk_heads.append(dk_h)
-            dv_heads.append(dv_h)
-        dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
+                dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
 
-        dx1 = self.query_proj.backward(dq)
-        dx2 = self.key_proj.backward(dk)
-        dx3 = self.value_proj.backward(dv)
+                dx1 = self.query_proj.backward(dq)
+                dx2 = self.key_proj.backward(dk)
+                dx3 = self.value_proj.backward(dv)
 
-        return dx1 + dx2 + dx3
+                return dx1 + dx2 + dx3
 
+            self._backward = _backward
 
-class FSDPAttention(Function):
-    """Computes the scaled dot product attention scores."""
-
-    @staticmethod
-    def forward(
-        cache: FunctionCache,
-        q: Tensor,
-        k: Tensor,
-        v: Tensor,
-        mask: Optional[Tensor] = None,
-        dropout_p: float = 0,
-        return_attn_w: bool = False,
-    ) -> tuple[Tensor, Optional[Tensor]]:
-        _, seq_len, head_size = q.shape
-
-        attn_w = q @ k.T / math.sqrt(head_size)
-        if mask is not None:
-            attn_w += mask[:seq_len, :seq_len]
-        attn_w = FSoftmax.forward(cache, attn_w)
-        attn_w = FDropout.forward(cache, attn_w, dropout_p, dropout_p > 0)
-        y = attn_w @ v
-
-        cache.q, cache.k, cache.v, cache.attn_w = q, k, v, attn_w
-        return y, attn_w if return_attn_w else None
-
-    @staticmethod
-    def backward(
-        cache: FunctionCache, dy: Tensor, dropout_p: float = 0
-    ) -> tuple[Tensor, Tensor, Tensor]:
-        q, k, v, attn_w = cache.q, cache.k, cache.v, cache.attn_w
-        head_size = q.shape[-1]
-
-        # attention gradients
-        dattn_w = dy @ v.T
-        dattn_w = FDropout.backward(cache, dattn_w, dropout_p > 0)
-        dattn_w = FSoftmax.backward(cache, dattn_w) / math.sqrt(head_size)
-
-        # query, key, value gradients
-        dq = dattn_w @ k
-        dk = dattn_w.T @ q
-        dv = attn_w.T @ dy
-
-        return dq, dk, dv
+        return y
 
 
 def scaled_dot_product_attention(
@@ -406,7 +358,12 @@ def scaled_dot_product_attention(
     mask: Optional[Tensor] = None,
     dropout_p: float = 0,
     return_attn_w: bool = False,
-) -> tuple[Tensor, Optional[Tensor]]:
+    return_grad_fn: bool = False,
+) -> tuple[
+    Tensor,
+    Optional[Tensor],
+    Optional[Callable[[Tensor], tuple[Tensor, Tensor, Tensor]]],
+]:
     r"""Computes the scaled dot product attention scores.
 
     Parameters
@@ -438,4 +395,33 @@ def scaled_dot_product_attention(
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    return FSDPAttention.forward(PseudoCache(), q, k, v, mask, dropout_p, return_attn_w)
+    _, seq_len, head_size = q.shape
+    scale_factor = math.sqrt(head_size)
+
+    attn_w = q @ k.T / scale_factor
+    if mask is not None:
+        attn_w += mask[:seq_len, :seq_len]  # truncate mask for smaller context lengths
+    attn_w, sm_grad_fn = softmax(attn_w, return_grad_fn)
+    if dropout_p > 0:
+        attn_w, drouput_grad_fn = dropout(attn_w, dropout_p, return_grad_fn)
+    y = attn_w @ v
+
+    if return_grad_fn:
+
+        def grad_fn(dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+            # attention gradients
+            dattn_w = dy @ v.T
+            if dropout_p > 0:
+                dattn_w = drouput_grad_fn(dattn_w)
+            dattn_w = sm_grad_fn(dattn_w) / scale_factor
+
+            # query, key, value gradients
+            dq = dattn_w @ k
+            dk = dattn_w.T @ q
+            dv = attn_w.T @ dy
+
+            return dq, dk, dv
+
+        return y, (attn_w if return_attn_w else None), grad_fn
+
+    return y, (attn_w if return_attn_w else None), None
