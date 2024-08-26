@@ -4,8 +4,8 @@ import math
 from typing import Optional
 
 from compyute.nn.functional.activations import FSoftmax
-from compyute.nn.functional.dropout import FDropout
 from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
+from compyute.nn.functional.regularizations import FDropout
 from compyute.nn.modules.activations import ReLU
 from compyute.nn.modules.containers import ResidualConnection, Sequential
 from compyute.nn.modules.embedding import Embedding
@@ -283,24 +283,15 @@ class MultiHeadAttention(Module):
         self.dropout_p = dropout_p
         self.attn_w: list[Tensor | None] = []
 
-        # TODO: find better solution for this
-        self._fcaches = [FunctionCache() for _ in range(n_heads)]
-
         self.query_proj = Linear(in_channels, in_channels, False, dtype, "QueryProj")
         self.key_proj = Linear(in_channels, in_channels, False, dtype, "KeyProj")
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
 
-    def clean(self, force: bool = False) -> None:
-        super().clean(force)
-        for fcache in self._fcaches:
-            fcache.clear()
-
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
-
-        ys = []
         dropout_p = self.dropout_p if self._is_training else 0
+        ys = []
 
         # input projection for self-attention
         q = self.query_proj(x)
@@ -311,9 +302,9 @@ class MultiHeadAttention(Module):
         q_heads, k_heads, v_heads = (split(x, self.n_heads) for x in (q, k, v))
 
         # multi head attention: compute attention weights for each head, concat results
-        for q_h, k_h, v_h, fcache in zip(q_heads, k_heads, v_heads, self._fcaches):
+        for q_h, k_h, v_h in zip(q_heads, k_heads, v_heads):
             y_h, attn_w_h = FSDPAttention.forward(
-                fcache,
+                self._fcache,
                 q_h,
                 k_h,
                 v_h,
@@ -331,7 +322,6 @@ class MultiHeadAttention(Module):
     def backward(self, dy: Tensor) -> Tensor:
         super().backward(dy)
         dq_heads, dk_heads, dv_heads = [], [], []
-        dropout_p = self.dropout_p if self._is_training else 0
 
         # output gradients
         dy = self.out_proj.backward(dy)
@@ -340,11 +330,11 @@ class MultiHeadAttention(Module):
         dy_splits = split(dy, self.n_heads)
 
         # multi head attention gradients
-        for dy_h, fcache in zip(dy_splits, self._fcaches):
-            dq_h, dk_h, dv_h = FSDPAttention.backward(fcache, dy_h, dropout_p)
-            dq_heads.append(dq_h)
-            dk_heads.append(dk_h)
-            dv_heads.append(dv_h)
+        for dy_h in reversed(dy_splits):
+            dq_h, dk_h, dv_h = FSDPAttention.backward(self._fcache, dy_h)
+            dq_heads.insert(0, dq_h)
+            dk_heads.insert(0, dk_h)
+            dv_heads.insert(0, dv_h)
         dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
 
         dx1 = self.query_proj.backward(dq)
@@ -363,9 +353,9 @@ class FSDPAttention(Function):
         q: Tensor,
         k: Tensor,
         v: Tensor,
-        mask: Optional[Tensor] = None,
-        dropout_p: float = 0,
-        return_attn_w: bool = False,
+        mask: Optional[Tensor],
+        dropout_p: float,
+        return_attn_w: bool,
     ) -> tuple[Tensor, Optional[Tensor]]:
         _, seq_len, head_size = q.shape
 
@@ -380,15 +370,13 @@ class FSDPAttention(Function):
         return y, attn_w if return_attn_w else None
 
     @staticmethod
-    def backward(
-        cache: FunctionCache, dy: Tensor, dropout_p: float = 0
-    ) -> tuple[Tensor, Tensor, Tensor]:
+    def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
         q, k, v, attn_w = cache.q, cache.k, cache.v, cache.attn_w
         head_size = q.shape[-1]
 
         # attention gradients
         dattn_w = dy @ v.T
-        dattn_w = FDropout.backward(cache, dattn_w, dropout_p > 0)
+        dattn_w = FDropout.backward(cache, dattn_w)
         dattn_w = FSoftmax.backward(cache, dattn_w) / math.sqrt(head_size)
 
         # query, key, value gradients
