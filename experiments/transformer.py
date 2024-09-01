@@ -15,10 +15,12 @@ from compyute.nn.modules.normalization import LayerNorm
 from compyute.nn.modules.regularization import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import normal
-from compyute.tensor_ops.creating import arange, concat, full, split
+from compyute.tensor_ops.creating import arange, concat, full, split, zeros
+from compyute.tensor_ops.reshaping import insert_dim
 from compyute.tensor_ops.selecting import triu
+from compyute.tensor_ops.transforming import cos, exp, sin
 from compyute.tensors import ShapeLike, Tensor
-from compyute.typing import DType, int32
+from compyute.typing import DType
 
 
 def get_causal_mask(shape: ShapeLike) -> Tensor:
@@ -46,14 +48,16 @@ class Transformer(Module):
         Number of embedding vectors.
     embedding_dim : int
         Number of embedding dimensions.
-    feedforward_channels : int
+    ffwd_channels : int
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
     n_blocks : int
         Number of transformer blocks.
-    max_sequence_length : int
+    max_seq_len : int
         Maximum possible length of the input sequence.
+    pos_enc_base: float, optional
+        Base for the positional encoding. Defaults to ``10000.0``.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
@@ -85,10 +89,11 @@ class Transformer(Module):
         self,
         n_embeddings: int,
         embedding_dim: int,
-        feedforward_channels: int,
+        ffwd_channels: int,
         n_heads: int,
         n_blocks: int,
-        sequence_length: int,
+        max_seq_len: int,
+        pos_enc_base: float = 10000.0,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
         dtype: Optional[DType] = None,
@@ -98,13 +103,15 @@ class Transformer(Module):
 
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
-        self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding")
-        normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
+        normal(self.token_emb.w, std=1 / math.sqrt(embedding_dim))
+        self.pos_enc = PositionalEncoding(
+            max_seq_len, embedding_dim, pos_enc_base, dtype, "PosEncoding"
+        )
 
         # Transformer blocks
         block_kwargs = {
             "in_channels": embedding_dim,
-            "feedforward_channels": feedforward_channels,
+            "ffwd_channels": ffwd_channels,
             "n_heads": n_heads,
             "mask": mask,
             "dropout_p": dropout_p,
@@ -121,8 +128,7 @@ class Transformer(Module):
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        pos = arange(x.shape[-1], device=x.device, dtype=int32)
-        x = self.token_emb(x) + self.pos_emb(pos)
+        x = self.token_emb(x) + self.pos_enc(x)
         for block in self.blocks:
             x = block(x)
         return self.lm_head(self.ln(x))
@@ -133,7 +139,41 @@ class Transformer(Module):
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         self.token_emb.backward(dy)
-        self.pos_emb.backward(dy.sum(axis=0))  # undo broadcasting by summing
+
+
+class PositionalEncoding(Module):
+    """Sinusoidal Positional Encoding."""
+
+    def __init__(
+        self,
+        max_seq_len: int,
+        embedding_dim: int,
+        base: float = 10000.0,
+        dtype: Optional[DType] = None,
+        label: Optional[str] = None,
+    ) -> None:
+        super().__init__(label)
+        self.max_seq_len = max_seq_len
+        self.embedding_dim = embedding_dim
+
+        # compute positional encodings
+        encodings = zeros((max_seq_len, embedding_dim), dtype=dtype)
+        positions = insert_dim(arange(max_seq_len, dtype=dtype), -1)
+        emb_range = arange(embedding_dim, step=2, dtype=dtype)
+        div_term = exp(emb_range * (-(math.log(base) / embedding_dim)))
+        encodings[:, 0::2] = sin(positions * div_term)
+        encodings[:, 1::2] = cos(positions * div_term)
+        encodings = insert_dim(encodings, 0)
+
+        self.encoding = Buffer(encodings)
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        return self.encoding[:, : x.shape[1]]
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        return dy
 
 
 class TransformerBlock(Sequential):
@@ -144,7 +184,7 @@ class TransformerBlock(Sequential):
     ----------
     in_channels : int
         Number of input channels.
-    feedforward_channels : int
+    ffwd_channels : int
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
@@ -162,7 +202,7 @@ class TransformerBlock(Sequential):
     def __init__(
         self,
         in_channels: int,
-        feedforward_channels: int,
+        ffwd_channels: int,
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
@@ -178,7 +218,7 @@ class TransformerBlock(Sequential):
 
         feedforward_block = ResidualConnection(
             LayerNorm((in_channels,), dtype=dtype),
-            FeedForward(in_channels, feedforward_channels, dtype),
+            FeedForward(in_channels, ffwd_channels, dtype),
             Dropout(dropout_p),
         )
 
