@@ -14,12 +14,11 @@ from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
 from compyute.nn.modules.normalization import LayerNorm
 from compyute.nn.modules.regularization import Dropout
 from compyute.nn.parameter import Buffer
-from compyute.nn.utils.initializers import Normal
+from compyute.nn.utils.initializers import normal
 from compyute.tensor_ops.creating import arange, concat, full, split
 from compyute.tensor_ops.selecting import triu
-from compyute.tensor_ops.transforming import sum as cpsum
 from compyute.tensors import ShapeLike, Tensor
-from compyute.typing import DType
+from compyute.typing import DType, int32
 
 
 def get_causal_mask(shape: ShapeLike) -> Tensor:
@@ -100,11 +99,7 @@ class Transformer(Module):
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
         self.pos_emb = Embedding(sequence_length, embedding_dim, dtype, "PosEmbedding")
-
-        # initialize embedding weights
-        init = Normal(std=1 / math.sqrt(embedding_dim))
-        init(self.token_emb.w)
-        init(self.pos_emb.w)
+        normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
 
         # Transformer blocks
         block_kwargs = {
@@ -124,19 +119,21 @@ class Transformer(Module):
         self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
+    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        pos = arange(x.shape[-1], device=x.device).to_int()
+        pos = arange(x.shape[-1], device=x.device, dtype=int32)
         x = self.token_emb(x) + self.pos_emb(pos)
         for block in self.blocks:
             x = block(x)
         return self.lm_head(self.ln(x))
 
+    @Module.register_backward
     def backward(self, dy: Tensor) -> None:
         dy = self.ln.backward(self.lm_head.backward(dy))
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         self.token_emb.backward(dy)
-        self.pos_emb.backward(cpsum(dy, axis=0))  # undo broadcasting by summing
+        self.pos_emb.backward(dy.sum(axis=0))  # undo broadcasting by summing
 
 
 class TransformerBlock(Sequential):
@@ -210,11 +207,10 @@ class FeedForward(Sequential):
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
-        linear = Linear(in_channels, h_channels, dtype=dtype)
+        up_proj = Linear(in_channels, h_channels, dtype=dtype)
         activation = ReLU()
-        out_proj = Linear(h_channels, in_channels, dtype=dtype, label="OutProj")
-
-        super().__init__(linear, activation, out_proj, label=label)
+        down_proj = Linear(h_channels, in_channels, dtype=dtype)
+        super().__init__(up_proj, activation, down_proj, label=label)
 
 
 class MultiHeadAttention(Module):
@@ -279,7 +275,7 @@ class MultiHeadAttention(Module):
         super().__init__(label)
 
         self.n_heads = n_heads
-        self.mask = Buffer(mask) if mask is not None else None
+        self.mask = None if not mask else Buffer(mask)
         self.dropout_p = dropout_p
         self.attn_w: list[Tensor | None] = []
 
@@ -288,6 +284,7 @@ class MultiHeadAttention(Module):
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
 
+    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
         dropout_p = self.dropout_p if self._is_training else 0
@@ -302,25 +299,25 @@ class MultiHeadAttention(Module):
         q_heads, k_heads, v_heads = (split(x, self.n_heads) for x in (q, k, v))
 
         # multi head attention: compute attention weights for each head, concat results
-        for q_h, k_h, v_h in zip(q_heads, k_heads, v_heads):
-            y_h, attn_w_h = FSDPAttention.forward(
-                self._fcache,
-                q_h,
-                k_h,
-                v_h,
+        for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
+            y_head, attn_w_h = FSDPAttention.forward(
+                self.fcache,
+                q_head,
+                k_head,
+                v_head,
                 self.mask,
                 dropout_p,
                 self._is_retaining_values,
             )
-            ys.append(y_h)
+            ys.append(y_head)
             self.attn_w.append(attn_w_h)
         y = concat(ys)
 
-        # output projection (B, S, C_in) -> (B, S, C_in)
+        # output projection
         return self.out_proj(y)
 
+    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        super().backward(dy)
         dq_heads, dk_heads, dv_heads = [], [], []
 
         # output gradients
@@ -330,11 +327,11 @@ class MultiHeadAttention(Module):
         dy_splits = split(dy, self.n_heads)
 
         # multi head attention gradients
-        for dy_h in reversed(dy_splits):
-            dq_h, dk_h, dv_h = FSDPAttention.backward(self._fcache, dy_h)
-            dq_heads.insert(0, dq_h)
-            dk_heads.insert(0, dk_h)
-            dv_heads.insert(0, dv_h)
+        for dy_head in reversed(dy_splits):
+            dq_head, dk_head, dv_head = FSDPAttention.backward(self.fcache, dy_head)
+            dq_heads.insert(0, dq_head)
+            dk_heads.insert(0, dk_head)
+            dv_heads.insert(0, dv_head)
         dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
 
         dx1 = self.query_proj.backward(dq)
@@ -367,7 +364,7 @@ class FSDPAttention(Function):
         y = attn_w @ v
 
         cache.q, cache.k, cache.v, cache.attn_w = q, k, v, attn_w
-        return y, attn_w if return_attn_w else None
+        return y, (None if not return_attn_w else attn_w)
 
     @staticmethod
     def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -387,7 +384,7 @@ class FSDPAttention(Function):
         return dq, dk, dv
 
 
-def scaled_dot_product_attention(
+def sdp_attention(
     q: Tensor,
     k: Tensor,
     v: Tensor,
