@@ -14,7 +14,7 @@ from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
 from compyute.nn.modules.normalization import LayerNorm
 from compyute.nn.modules.regularization import Dropout
 from compyute.nn.parameter import Buffer
-from compyute.nn.utils.initializers import normal
+from compyute.nn.utils.initializers import init_normal
 from compyute.tensor_ops.creating import arange, concat, full, split, zeros
 from compyute.tensor_ops.reshaping import insert_dim
 from compyute.tensor_ops.selecting import triu
@@ -103,7 +103,7 @@ class Transformer(Module):
 
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
-        normal(self.token_emb.w, std=1 / math.sqrt(embedding_dim))
+        init_normal(self.token_emb.w, std=1 / math.sqrt(embedding_dim))
         self.pos_enc = PositionalEncoding(
             max_seq_len, embedding_dim, pos_enc_base, dtype, "PosEncoding"
         )
