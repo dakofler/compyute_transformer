@@ -142,13 +142,44 @@ class Transformer(Module):
 
 
 class PositionalEncoding(Module):
-    """Sinusoidal Positional Encoding."""
+    r"""Sinusoidal Positional Encoding layer as described by
+    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
+
+    .. math::
+        \begin{array}{ll} \\
+            PE_{(pos, 2i)} = \text{sin}(pos \cdot e^{-2i \frac{log(b)}{E})
+            PE_{(pos, 2i+1)} = \text{cos}(pos \cdot e^{-2i \frac{log(b)}{E})
+        \end{array}
+
+    where :math:`E` is the embedding dimension and :math:`b` is the base.
+
+    Shapes:
+        - Input :math:`(B_1, ... , B_n, S)`
+        - Output :math:`(B_1, ... , B_n, S, E)`
+    where
+        - :math:`B_1, ... , B_n` ... batch axes
+        - :math:`S` ... sequence
+        - :math:`E` ... embedding dimension
+
+    Parameters
+    ----------
+    max_seq_len : int
+        Maximum possible length of the input sequence.
+    embedding_dim : int
+        Embedding vector dimensions.
+    base : float, optional
+        Base for computing the positional encoding. Defaults to ``1e4``.
+    dtype : DType, optional
+        Datatype of weights and biases. Defaults to ``None``.
+    label : str, optional
+        Module label. Defaults to ``None``. If ``None``, the class name is used.
+    """
 
     def __init__(
         self,
         max_seq_len: int,
         embedding_dim: int,
-        base: float = 10000.0,
+        base: float = 1e4,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
@@ -163,13 +194,12 @@ class PositionalEncoding(Module):
         div_term = exp(emb_range * (-(math.log(base) / embedding_dim)))
         encodings[:, 0::2] = sin(positions * div_term)
         encodings[:, 1::2] = cos(positions * div_term)
-        encodings = insert_dim(encodings, 0)
 
-        self.encoding = Buffer(encodings)
+        self.encodings = Buffer(encodings)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        return self.encoding[:, : x.shape[1]]
+        return self.encodings[: x.shape[1]]
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
