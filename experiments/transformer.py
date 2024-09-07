@@ -7,7 +7,6 @@ from compyute.nn.functional.activations import FSoftmax
 from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
 from compyute.nn.functional.regularizations import FDropout
 from compyute.nn.modules.activations import ReLU
-from compyute.nn.modules.containers import ResidualConnection, Sequential
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
@@ -20,7 +19,7 @@ from compyute.tensor_ops.reshaping import insert_dim
 from compyute.tensor_ops.selecting import triu
 from compyute.tensor_ops.transforming import cos, exp, sin
 from compyute.tensors import ShapeLike, Tensor
-from compyute.typing import DType
+from compyute.typing import DType, int64
 
 
 def get_causal_mask(shape: ShapeLike) -> Tensor:
@@ -49,11 +48,13 @@ class Transformer(Module):
     embedding_dim : int
         Number of embedding dimensions.
     ffwd_channels : int
+    ffwd_channels : int
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
     n_blocks : int
         Number of transformer blocks.
+    max_seq_len : int
     max_seq_len : int
         Maximum possible length of the input sequence.
     pos_enc_base: float, optional
@@ -93,7 +94,6 @@ class Transformer(Module):
         n_heads: int,
         n_blocks: int,
         max_seq_len: int,
-        pos_enc_base: float = 10000.0,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
         dtype: Optional[DType] = None,
@@ -103,16 +103,15 @@ class Transformer(Module):
 
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
-        init_normal(self.token_emb.w, std=1 / math.sqrt(embedding_dim))
-        self.pos_enc = PositionalEncoding(
-            max_seq_len, embedding_dim, pos_enc_base, dtype, "PosEncoding"
-        )
+        self.pos_emb = Embedding(max_seq_len, embedding_dim, dtype, "PosEncoding")
+        init_normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
 
         # Transformer blocks
         block_kwargs = {
             "in_channels": embedding_dim,
             "ffwd_channels": ffwd_channels,
             "n_heads": n_heads,
+            "out_proj_std": 1 / math.sqrt(2 * n_blocks),
             "mask": mask,
             "dropout_p": dropout_p,
             "dtype": dtype,
@@ -126,9 +125,12 @@ class Transformer(Module):
         self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
+        self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int64), 0))
+
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        x = self.token_emb(x) + self.pos_enc(x)
+        pos = self.pos[:, : x.shape[-1]]
+        x = self.token_emb(x) + self.pos_emb(pos)
         for block in self.blocks:
             x = block(x)
         return self.lm_head(self.ln(x))
@@ -139,74 +141,10 @@ class Transformer(Module):
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         self.token_emb.backward(dy)
+        self.pos_emb.backward(dy.sum(axis=0))
 
 
-class PositionalEncoding(Module):
-    r"""Sinusoidal Positional Encoding layer as described by
-    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
-
-    .. math::
-        \begin{array}{ll} \\
-            PE_{(pos, 2i)} = \text{sin}(pos \cdot e^{-2i \frac{log(b)}{E})
-            PE_{(pos, 2i+1)} = \text{cos}(pos \cdot e^{-2i \frac{log(b)}{E})
-        \end{array}
-
-    where :math:`E` is the embedding dimension and :math:`b` is the base.
-
-    Shapes:
-        - Input :math:`(B_1, ... , B_n, S)`
-        - Output :math:`(B_1, ... , B_n, S, E)`
-    where
-        - :math:`B_1, ... , B_n` ... batch axes
-        - :math:`S` ... sequence
-        - :math:`E` ... embedding dimension
-
-    Parameters
-    ----------
-    max_seq_len : int
-        Maximum possible length of the input sequence.
-    embedding_dim : int
-        Embedding vector dimensions.
-    base : float, optional
-        Base for computing the positional encoding. Defaults to ``1e4``.
-    dtype : DType, optional
-        Datatype of weights and biases. Defaults to ``None``.
-    label : str, optional
-        Module label. Defaults to ``None``. If ``None``, the class name is used.
-    """
-
-    def __init__(
-        self,
-        max_seq_len: int,
-        embedding_dim: int,
-        base: float = 1e4,
-        dtype: Optional[DType] = None,
-        label: Optional[str] = None,
-    ) -> None:
-        super().__init__(label)
-        self.max_seq_len = max_seq_len
-        self.embedding_dim = embedding_dim
-
-        # compute positional encodings
-        encodings = zeros((max_seq_len, embedding_dim), dtype=dtype)
-        positions = insert_dim(arange(max_seq_len, dtype=dtype), -1)
-        emb_range = arange(embedding_dim, step=2, dtype=dtype)
-        div_term = exp(emb_range * (-(math.log(base) / embedding_dim)))
-        encodings[:, 0::2] = sin(positions * div_term)
-        encodings[:, 1::2] = cos(positions * div_term)
-
-        self.encodings = Buffer(encodings)
-
-    @Module.register_forward
-    def forward(self, x: Tensor) -> Tensor:
-        return self.encodings[: x.shape[1]]
-
-    @Module.register_backward
-    def backward(self, dy: Tensor) -> Tensor:
-        return dy
-
-
-class TransformerBlock(Sequential):
+class TransformerBlock(Module):
     """Decoder-only transformer block consisting of a multi head attention block
     and a feed forward block.
 
@@ -218,6 +156,8 @@ class TransformerBlock(Sequential):
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
+    out_proj_std : float, optional
+        Standard deviation of the output projection. Defaults to ``1.0``.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
@@ -234,28 +174,38 @@ class TransformerBlock(Sequential):
         in_channels: int,
         ffwd_channels: int,
         n_heads: int,
+        out_proj_std: float = 1.0,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
+        super().__init__(label)
 
-        attention_block = ResidualConnection(
-            LayerNorm((in_channels,), dtype=dtype),
-            MultiHeadAttention(in_channels, n_heads, mask, dropout_p, dtype),
-            Dropout(dropout_p),
+        self.ln_1 = LayerNorm((in_channels,), dtype=dtype)
+        self.attn = MultiHeadAttention(
+            in_channels, n_heads, mask, dropout_p, out_proj_std, dtype
         )
+        self.dropout_1 = Dropout(dropout_p)
 
-        feedforward_block = ResidualConnection(
-            LayerNorm((in_channels,), dtype=dtype),
-            FeedForward(in_channels, ffwd_channels, dtype),
-            Dropout(dropout_p),
-        )
+        self.ln_2 = LayerNorm((in_channels,), dtype=dtype)
+        self.ffwd = FeedForward(in_channels, ffwd_channels, out_proj_std, dtype)
+        self.dropout_2 = Dropout(dropout_p)
 
-        super().__init__(attention_block, feedforward_block, label=label)
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        x = x + self.dropout_1(self.attn(self.ln_1(x)))
+        x = x + self.dropout_2(self.ffwd(self.ln_2(x)))
+        return x
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        dy = dy + self.ln_1.backward(self.attn.backward(self.dropout_1.backward(dy)))
+        dy = dy + self.ln_2.backward(self.ffwd.backward(self.dropout_2.backward(dy)))
+        return dy
 
 
-class FeedForward(Sequential):
+class FeedForward(Module):
     """FeedForward block for transformers.
 
     Parameters
@@ -264,6 +214,8 @@ class FeedForward(Sequential):
         Number of input channels.
     h_channels : int
         Number of channels of the hidden layer.
+    out_proj_std : float, optional
+        Standard deviation of the output projection. Defaults to ``1.0``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
@@ -274,13 +226,29 @@ class FeedForward(Sequential):
         self,
         in_channels: int,
         h_channels: int,
+        out_proj_std: float = 1.0,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
-        up_proj = Linear(in_channels, h_channels, dtype=dtype)
-        activation = ReLU()
-        down_proj = Linear(h_channels, in_channels, dtype=dtype)
-        super().__init__(up_proj, activation, down_proj, label=label)
+        super().__init__(label)
+        self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
+        self.act = ReLU()
+        self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
+        self.down_proj.w *= out_proj_std
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.up_proj(x)
+        x = self.act(x)
+        x = self.down_proj(x)
+        return x
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        dy = self.down_proj.backward(dy)
+        dy = self.act.backward(dy)
+        dy = self.up_proj.backward(dy)
+        return dy
 
 
 class MultiHeadAttention(Module):
@@ -317,6 +285,8 @@ class MultiHeadAttention(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability. Defaults to ``0``.
+    out_proj_std : float, optional
+        Standard deviation of the output projection. Defaults to ``1.0``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
@@ -337,6 +307,7 @@ class MultiHeadAttention(Module):
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0,
+        out_proj_std: float = 1.0,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
@@ -352,7 +323,9 @@ class MultiHeadAttention(Module):
         self.query_proj = Linear(in_channels, in_channels, False, dtype, "QueryProj")
         self.key_proj = Linear(in_channels, in_channels, False, dtype, "KeyProj")
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
+
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
+        self.out_proj.w *= out_proj_std
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
@@ -494,3 +467,68 @@ def sdp_attention(
     :class:`compyute.nn.MultiHeadAttention`
     """
     return FSDPAttention.forward(PseudoCache(), q, k, v, mask, dropout_p, return_attn_w)
+
+
+class PositionalEncoding(Module):
+    r"""Sinusoidal Positional Encoding layer as described by
+    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
+
+    .. math::
+        \begin{array}{ll} \\
+            PE_{(pos, 2i)} = \text{sin}(pos \cdot e^{-2i \frac{log(b)}{E})
+            PE_{(pos, 2i+1)} = \text{cos}(pos \cdot e^{-2i \frac{log(b)}{E})
+        \end{array}
+
+    where :math:`E` is the embedding dimension and :math:`b` is the base.
+
+    Shapes:
+        - Input :math:`(B_1, ... , B_n, S)`
+        - Output :math:`(B_1, ... , B_n, S, E)`
+    where
+        - :math:`B_1, ... , B_n` ... batch axes
+        - :math:`S` ... sequence
+        - :math:`E` ... embedding dimension
+
+    Parameters
+    ----------
+    max_seq_len : int
+        Maximum possible length of the input sequence.
+    embedding_dim : int
+        Embedding vector dimensions.
+    base : float, optional
+        Base for computing the positional encoding. Defaults to ``1e4``.
+    dtype : DType, optional
+        Datatype of weights and biases. Defaults to ``None``.
+    label : str, optional
+        Module label. Defaults to ``None``. If ``None``, the class name is used.
+    """
+
+    def __init__(
+        self,
+        max_seq_len: int,
+        embedding_dim: int,
+        base: float = 1e4,
+        dtype: Optional[DType] = None,
+        label: Optional[str] = None,
+    ) -> None:
+        super().__init__(label)
+        self.max_seq_len = max_seq_len
+        self.embedding_dim = embedding_dim
+
+        # compute positional encodings
+        encodings = zeros((max_seq_len, embedding_dim), dtype=dtype)
+        positions = insert_dim(arange(max_seq_len, dtype=dtype), -1)
+        emb_range = arange(embedding_dim, step=2, dtype=dtype)
+        div_term = exp(emb_range * (-(math.log(base) / embedding_dim)))
+        encodings[:, 0::2] = sin(positions * div_term)
+        encodings[:, 1::2] = cos(positions * div_term)
+
+        self.encodings = Buffer(encodings)
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        return self.encodings[: x.shape[1]]
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        return dy

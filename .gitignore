@@ -1,7 +1,6 @@
 *.whl
-*.cp
-**/runs/**
 test.ipynb
+*.cp
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
