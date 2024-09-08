@@ -56,11 +56,10 @@ model = Transformer(
 )
 model.to_device(device)
 
-
-train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device, True, True)
-val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False, True)
+train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
+val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
 loss_func = nn.CrossEntropy()
-optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4, beta1=0.9, beta2=0.95)
+optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 grad_accum_steps = batch_size // mini_batch_size
 step = 1
@@ -79,6 +78,7 @@ for x, y in train_dl():
     cp.backend.synchronize()
     dt = time.time() - start
 
-    print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s")
+    tok_per_s = batch_size * block_size / dt
+    print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")
 
     step += 1

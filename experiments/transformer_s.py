@@ -196,8 +196,8 @@ class TransformerBlock(Module):
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = dy + self.ln_1.backward(self.attn.backward(self.dropout_1.backward(dy)))
         dy = dy + self.ln_2.backward(self.ffwd.backward(self.dropout_2.backward(dy)))
+        dy = dy + self.ln_1.backward(self.attn.backward(self.dropout_1.backward(dy)))
         return dy
 
 
@@ -303,7 +303,7 @@ class MultiHeadAttention(Module):
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0,
-        out_proj_std: float = 1.0,
+        out_scale: float = 1.0,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
@@ -321,7 +321,7 @@ class MultiHeadAttention(Module):
         self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
 
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
-        self.out_proj.w *= out_proj_std
+        self.out_proj.w *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
@@ -375,9 +375,9 @@ class MultiHeadAttention(Module):
             dv_heads.append(dv_head)
 
         # merge heads
-        dq = concat(list(reversed(dq_heads)))
-        dk = concat(list(reversed(dk_heads)))
-        dv = concat(list(reversed(dv_heads)))
+        dq = concat(dq_heads[::-1])
+        dk = concat(dk_heads[::-1])
+        dv = concat(dv_heads[::-1])
 
         # input projection gradients
         dx1 = self.query_proj.backward(dq)
