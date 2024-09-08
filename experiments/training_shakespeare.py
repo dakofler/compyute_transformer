@@ -5,7 +5,8 @@ import compyute as cp
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from compyute.preprocessing.text import CharacterTokenizer
-from transformer import Transformer, get_causal_mask
+
+from experiments.transformer_b import Transformer, get_causal_mask
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -14,7 +15,7 @@ block_size = 256
 embed_dims = 384
 
 batch_size = 64
-micro_batch_size = 32
+micro_batch_size = 8
 val_interval = 200
 max_iter = 2500
 checkpoint_interal = 500
@@ -48,12 +49,6 @@ X_train = X.to_int()[:n]
 y_train = y.to_int()[:n]
 X_val = X.to_int()[n:]
 y_val = y.to_int()[n:]
-
-print(f"{X_train.shape=}")
-print(f"{y_train.shape=}")
-print(f"{X_val.shape=}")
-print(f"{y_val.shape=}")
-
 
 mask = get_causal_mask((block_size, block_size))
 

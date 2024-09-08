@@ -17,7 +17,7 @@ from compyute.nn.utils.initializers import init_normal
 from compyute.tensor_ops.creating import arange, concat, full, split, zeros
 from compyute.tensor_ops.reshaping import insert_dim
 from compyute.tensor_ops.selecting import triu
-from compyute.tensor_ops.transforming import cos, exp, sin
+from compyute.tensor_ops.transforming import cos, exp, sin, tensorsum
 from compyute.tensors import ShapeLike, Tensor
 from compyute.typing import DType, int32
 
@@ -310,15 +310,12 @@ class MultiHeadAttention(Module):
         if in_channels % n_heads != 0:
             raise ValueError("Number of input channels must be divisible by n_heads.")
         super().__init__(label)
-
         self.n_heads = n_heads
-        self.mask = None if not mask else Buffer(mask)
-        self.dropout_p = dropout_p
-        self.attn_w: list[Tensor | None] = []
-
-        self.query_proj = Linear(in_channels, in_channels, False, dtype, "QueryProj")
-        self.key_proj = Linear(in_channels, in_channels, False, dtype, "KeyProj")
-        self.value_proj = Linear(in_channels, in_channels, False, dtype, "ValueProj")
+        head_size = in_channels // n_heads
+        self.heads = ModuleList(
+            AttentionHead(in_channels, head_size, mask, dropout_p, dtype)
+            for _ in range(n_heads)
+        )
 
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
         self.out_proj.w *= out_proj_std
@@ -326,57 +323,61 @@ class MultiHeadAttention(Module):
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
-        dropout_p = self.dropout_p if self._is_training else 0
-        ys = []
-
-        # input projection for self-attention
-        q = self.query_proj(x)
-        k = self.key_proj(x)
-        v = self.value_proj(x)
-
-        # split projections for each head
-        q_heads, k_heads, v_heads = (split(x, self.n_heads) for x in (q, k, v))
-
-        # multi head attention: compute attention weights for each head, concat results
-        for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
-            y_head, attn_w_h = FSDPAttention.forward(
-                self.fcache,
-                q_head,
-                k_head,
-                v_head,
-                self.mask,
-                dropout_p,
-                self._is_retaining_values,
-            )
-            ys.append(y_head)
-            self.attn_w.append(attn_w_h)
-        y = concat(ys)
-
-        # output projection
+        y = concat([h(x) for h in self.heads])
         return self.out_proj(y)
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dq_heads, dk_heads, dv_heads = [], [], []
-
-        # output gradients
         dy = self.out_proj.backward(dy)
+        dys = split(dy, self.n_heads)
+        return tensorsum(h.backward(dy) for h, dy in zip(self.heads, dys))
 
-        # split output gradients for each head
-        dy_splits = split(dy, self.n_heads)
 
-        # multi head attention gradients
-        for dy_head in reversed(dy_splits):
-            dq_head, dk_head, dv_head = FSDPAttention.backward(self.fcache, dy_head)
-            dq_heads.insert(0, dq_head)
-            dk_heads.insert(0, dk_head)
-            dv_heads.insert(0, dv_head)
-        dq, dk, dv = (concat(x) for x in (dq_heads, dk_heads, dv_heads))
+class AttentionHead(Module):
 
+    def __init__(
+        self,
+        in_channels: int,
+        head_size: int,
+        mask: Optional[Tensor] = None,
+        dropout_p: float = 0,
+        dtype: Optional[DType] = None,
+        label: Optional[str] = None,
+    ) -> None:
+        super().__init__(label)
+        self.mask = None if not mask else Buffer(mask)
+        self.dropout_p = dropout_p
+        self.attn_w: Optional[Tensor] = None
+
+        self.query_proj = Linear(in_channels, head_size, False, dtype, "QueryProj")
+        self.key_proj = Linear(in_channels, head_size, False, dtype, "KeyProj")
+        self.value_proj = Linear(in_channels, head_size, False, dtype, "ValueProj")
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        dropout_p = self.dropout_p if self._is_training else 0
+
+        q = self.query_proj(x)
+        k = self.key_proj(x)
+        v = self.value_proj(x)
+
+        y, self.attn_w = FSDPAttention.forward(
+            self.fcache,
+            q,
+            k,
+            v,
+            self.mask,
+            dropout_p,
+            self._is_retaining_values,
+        )
+        return y
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        dq, dk, dv = FSDPAttention.backward(self.fcache, dy)
         dx1 = self.query_proj.backward(dq)
         dx2 = self.key_proj.backward(dk)
         dx3 = self.value_proj.backward(dv)
-
         return dx1 + dx2 + dx3
 
 
