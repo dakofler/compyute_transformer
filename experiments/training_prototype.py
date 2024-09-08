@@ -10,10 +10,6 @@ embed_dims = 384
 block_size = 256
 batch_size = 32
 
-val_interval = 200
-checkpoint_interal = 500
-max_iter = 100
-
 
 with open("data/tinyshakespeare.txt", "r") as f:
     data = f.read()
@@ -65,7 +61,7 @@ loss_func = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4, beta1=0.9, beta2=0.95)
 
 step = 1
-while step <= max_iter:
+while True:
     for x, y in train_dl():
         start = time.time()
 
@@ -79,20 +75,8 @@ while step <= max_iter:
         cp.backend.synchronize()
         dt = time.time() - start
 
-        # validation
-        if step > 1 and step % val_interval == 0:
-            val_loss = 0
-            for x_val, y_val in val_dl():
-                y_pred = model(x_val)
-                val_loss += loss_func(y_pred, y_val).item()
-            val_loss /= len(val_dl)
-            cp.backend.free_cuda_memory()
-
         print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s")
 
-        if step == max_iter:
-            break
-        step += 1
-
-    if step == max_iter:
         break
+
+    break

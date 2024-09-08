@@ -19,7 +19,7 @@ from compyute.tensor_ops.reshaping import insert_dim
 from compyute.tensor_ops.selecting import triu
 from compyute.tensor_ops.transforming import cos, exp, sin
 from compyute.tensors import ShapeLike, Tensor
-from compyute.typing import DType, int64
+from compyute.typing import DType, int32
 
 
 def get_causal_mask(shape: ShapeLike) -> Tensor:
@@ -99,7 +99,7 @@ class Transformer(Module):
 
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
-        self.pos_emb = Embedding(max_seq_len, embedding_dim, dtype, "PosEncoding")
+        self.pos_emb = Embedding(max_seq_len, embedding_dim, dtype, "PosEmbedding")
         init_normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
 
         # Transformer blocks
@@ -121,7 +121,7 @@ class Transformer(Module):
         self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
-        self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int64), 0))
+        self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
