@@ -2,7 +2,7 @@ import os
 from datetime import datetime
 
 import compyute as cp
-import compyute.nn as nn
+from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from compyute.preprocessing.text import CharacterTokenizer
 from transformer import Transformer, get_causal_mask
@@ -121,6 +121,7 @@ while step < max_iter:
                     val_loss += loss_func(y_pred, y_val).item()
                 val_loss /= len(val_dl)
                 writer.add_scalar("val/loss", val_loss, step)
+                cp.backend.free_cuda_memory()
 
             # save checkpoints
             if step > 1 and step % checkpoint_interal == 0:

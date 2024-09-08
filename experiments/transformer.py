@@ -48,17 +48,13 @@ class Transformer(Module):
     embedding_dim : int
         Number of embedding dimensions.
     ffwd_channels : int
-    ffwd_channels : int
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
     n_blocks : int
         Number of transformer blocks.
     max_seq_len : int
-    max_seq_len : int
         Maximum possible length of the input sequence.
-    pos_enc_base: float, optional
-        Base for the positional encoding. Defaults to ``10000.0``.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
@@ -111,7 +107,7 @@ class Transformer(Module):
             "in_channels": embedding_dim,
             "ffwd_channels": ffwd_channels,
             "n_heads": n_heads,
-            "out_proj_std": 1 / math.sqrt(2 * n_blocks),
+            "out_scale": 1 / math.sqrt(2 * n_blocks),
             "mask": mask,
             "dropout_p": dropout_p,
             "dtype": dtype,
@@ -156,8 +152,8 @@ class TransformerBlock(Module):
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
-    out_proj_std : float, optional
-        Standard deviation of the output projection. Defaults to ``1.0``.
+    out_scale : float, optional
+        Scale for the output projection. Defaults to ``1.0``.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
@@ -174,7 +170,7 @@ class TransformerBlock(Module):
         in_channels: int,
         ffwd_channels: int,
         n_heads: int,
-        out_proj_std: float = 1.0,
+        out_scale: float = 1.0,
         mask: Optional[Tensor] = None,
         dropout_p: float = 0.2,
         dtype: Optional[DType] = None,
@@ -184,12 +180,12 @@ class TransformerBlock(Module):
 
         self.ln_1 = LayerNorm((in_channels,), dtype=dtype)
         self.attn = MultiHeadAttention(
-            in_channels, n_heads, mask, dropout_p, out_proj_std, dtype
+            in_channels, n_heads, mask, dropout_p, out_scale, dtype
         )
         self.dropout_1 = Dropout(dropout_p)
 
         self.ln_2 = LayerNorm((in_channels,), dtype=dtype)
-        self.ffwd = FeedForward(in_channels, ffwd_channels, out_proj_std, dtype)
+        self.ffwd = FeedForward(in_channels, ffwd_channels, out_scale, dtype)
         self.dropout_2 = Dropout(dropout_p)
 
     @Module.register_forward
@@ -214,8 +210,8 @@ class FeedForward(Module):
         Number of input channels.
     h_channels : int
         Number of channels of the hidden layer.
-    out_proj_std : float, optional
-        Standard deviation of the output projection. Defaults to ``1.0``.
+    out_scale : float, optional
+        Scale for the output projection. Defaults to ``1.0``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
@@ -226,7 +222,7 @@ class FeedForward(Module):
         self,
         in_channels: int,
         h_channels: int,
-        out_proj_std: float = 1.0,
+        out_scale: float = 1.0,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
@@ -234,7 +230,7 @@ class FeedForward(Module):
         self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
         self.act = ReLU()
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
-        self.down_proj.w *= out_proj_std
+        self.down_proj.w *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
@@ -285,8 +281,8 @@ class MultiHeadAttention(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout_p : float, optional
         Dropout probability. Defaults to ``0``.
-    out_proj_std : float, optional
-        Standard deviation of the output projection. Defaults to ``1.0``.
+    out_scale : float, optional
+        Scale for the output projection. Defaults to ``1.0``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to ``None``.
     label: str, optional

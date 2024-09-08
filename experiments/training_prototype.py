@@ -1,7 +1,7 @@
 import time
 
 import compyute as cp
-import compyute.nn as nn
+from compyute import nn
 from compyute.preprocessing.text import CharacterTokenizer
 from transformer import Transformer, get_causal_mask
 
@@ -59,11 +59,10 @@ model = Transformer(
 model.to_device(device)
 
 
-train_dl = nn.utils.Dataloader((X_train, y_train), batch_size, device=device)
-val_dl = nn.utils.Dataloader((X_val, y_val), batch_size, device=device)
+train_dl = nn.utils.Dataloader((X_train, y_train), batch_size, device, True, True)
+val_dl = nn.utils.Dataloader((X_val, y_val), batch_size, device, False, True)
 loss_func = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4, beta1=0.9, beta2=0.95)
-
 
 step = 1
 while step <= max_iter:
@@ -77,6 +76,7 @@ while step <= max_iter:
         optim.step()  # update parameters
         optim.reset_grads()  # reset all gradients
 
+        cp.backend.synchronize()
         dt = time.time() - start
 
         # validation
