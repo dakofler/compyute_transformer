@@ -1,9 +1,10 @@
 import time
 
 import compyute as cp
+from attention_s import get_causal_mask
 from compyute import nn
 from compyute.preprocessing.text import CharacterTokenizer
-from transformer_u import Transformer, get_causal_mask
+from gpt_transformer import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -45,7 +46,7 @@ y_val = y[n:]
 
 mask = get_causal_mask((block_size, block_size))
 
-model = Transformer(
+model = GPTTransformer(
     n_embeddings=tokenizer.vocab_size,
     embedding_dim=embed_dims,
     ffwd_channels=4 * embed_dims,
@@ -55,6 +56,7 @@ model = Transformer(
     mask=mask,
 )
 model.to_device(device)
+
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)

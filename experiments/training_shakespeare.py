@@ -2,10 +2,11 @@ import os
 from datetime import datetime
 
 import compyute as cp
+from attention_s import get_causal_mask
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from compyute.preprocessing.text import CharacterTokenizer
-from transformer_s import Transformer, get_causal_mask
+from gpt_transformer import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -16,8 +17,8 @@ embed_dims = 384
 batch_size = 64
 mini_batch_size = 32
 val_interval = 250
-max_iter = 10
-checkpoint_interal = 10
+max_iter = 2500
+checkpoint_interal = 500
 
 
 with open("data/tinyshakespeare.txt", "r") as f:
@@ -51,7 +52,7 @@ y_val = y.to_int()[n:]
 
 mask = get_causal_mask((block_size, block_size))
 
-model = Transformer(
+model = GPTTransformer(
     n_embeddings=tokenizer.vocab_size,
     embedding_dim=embed_dims,
     ffwd_channels=4 * embed_dims,
@@ -59,9 +60,9 @@ model = Transformer(
     n_blocks=6,
     max_seq_len=block_size,
     mask=mask,
+    dropout=0.2,
 )
 model.to_device(device)
-
 
 grad_accumulation_steps = batch_size // mini_batch_size
 step = 0
@@ -72,7 +73,7 @@ loss_func = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 # create tensorboard logging directory
-label = "transformer_shakespeare_test"
+label = "transformer_shakespeare_2"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):
