@@ -28,7 +28,7 @@ def get_causal_mask(shape: ShapeLike) -> Tensor:
     Tensor
         Causal mask.
     """
-    return triu(full(shape, float("-inf")), d=1)
+    return triu(full(shape, float("-inf")), diag_index=1)
 
 
 class MultiHeadAttention(Module):
@@ -132,7 +132,7 @@ class MultiHeadAttention(Module):
                 v_head,
                 self.mask,
                 dropout_p,
-                self._is_retaining_values,
+                self._retain_values,
             )
             y_heads.append(y_head)
             self.attn_w.append(attn_w_head)

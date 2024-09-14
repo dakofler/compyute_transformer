@@ -68,17 +68,25 @@ step = 1
 for x, y in train_dl():
     start = time.time()
 
-    loss = 0
+    model.training()
+    loss = 0.0
     for i in range(grad_accum_steps):
-        with model.train():
-            loss += loss_func(model(x), y).item() / grad_accum_steps
-            model.backward(loss_func.backward() / grad_accum_steps)
+        loss += loss_func(model(x), y).item() / grad_accum_steps
+        model.backward(loss_func.backward() / grad_accum_steps)
 
     optim.step()  # update parameters
     optim.reset_grads()  # reset all gradients
 
     cp.backend.synchronize()
     dt = time.time() - start
+
+    model.inference()
+    if step > 1 and step % 5 == 0:
+        val_loss = 0.0
+        for x_val, y_val in val_dl():
+            y_pred = model(x_val)
+            val_loss += loss_func(y_pred, y_val).item()
+        val_loss /= len(val_dl)
 
     tok_per_s = batch_size * block_size / dt
     print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")

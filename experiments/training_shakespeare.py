@@ -80,7 +80,7 @@ if not os.path.exists(logdir):
     os.makedirs(logdir)
 
 writer = SummaryWriter(log_dir=logdir)
-loss = 0
+loss = 0.0
 accum_step = 0
 
 while step < max_iter:
@@ -88,14 +88,14 @@ while step < max_iter:
         accum_step += 1
 
         # training
-        with model.train():
-            # forward pass
-            y_pred = model(x)
-            loss += loss_func(y_pred, y).item() / grad_accumulation_steps
+        model.training()
+        # forward pass
+        y_pred = model(x)
+        loss += loss_func(y_pred, y).item() / grad_accumulation_steps
 
-            # backward pass
-            loss_grads = loss_func.backward() / grad_accumulation_steps
-            model.backward(loss_grads)  # compute new gradients
+        # backward pass
+        loss_grads = loss_func.backward() / grad_accumulation_steps
+        model.backward(loss_grads)  # compute new gradients
 
         if accum_step == grad_accumulation_steps:
             optim.step()  # update parameters
@@ -103,8 +103,9 @@ while step < max_iter:
             writer.add_scalar("train/loss", loss, step)
 
             # validation
+            model.inference()
             if step > 1 and step % val_interval == 0:
-                val_loss = 0
+                val_loss = 0.0
                 for x_val, y_val in val_dl():
                     y_pred = model(x_val)
                     val_loss += loss_func(y_pred, y_val).item()

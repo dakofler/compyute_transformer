@@ -28,7 +28,7 @@ def get_causal_mask(shape: ShapeLike) -> Tensor:
     Tensor
         Causal mask.
     """
-    return triu(full(shape, float("-inf")), d=1)
+    return triu(full(shape, float("-inf")), diag_index=1)
 
 
 class MultiHeadAttention(Module):
@@ -123,7 +123,7 @@ class MultiHeadAttention(Module):
 
         # multi head attention
         attn, self.attn_w = FSDPAttention.forward(
-            self.fcache, q, k, v, self.mask, dropout_p, self._is_retaining_values
+            self.fcache, q, k, v, self.mask, dropout_p, self._retain_values
         )
 
         # transpose back to (B, T, H, Ch) and merge heads to (B, T, C)

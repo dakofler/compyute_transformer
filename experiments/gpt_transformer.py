@@ -4,7 +4,7 @@ import math
 from typing import Optional
 
 from attention_s import MultiHeadAttention
-from compyute.nn.modules.activations import GELU
+from compyute.nn.modules.activations import FastGELU
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList
@@ -217,7 +217,7 @@ class FeedForward(Module):
     ) -> None:
         super().__init__(label)
         self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
-        self.act = GELU()
+        self.act = FastGELU()
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
         self.down_proj.w *= out_scale
 
