@@ -13,17 +13,14 @@ block_size = 256
 batch_size = 64
 mini_batch_size = 32
 
-
 with open("data/tinyshakespeare.txt", "r") as f:
     data = f.read()
-
 
 chars = sorted(list(set(data)))
 tokenizer = CharacterTokenizer()
 tokenizer.vocab = {i: c for i, c in enumerate(chars)}
 tokenizer.ivocab = {c: i for i, c in enumerate(chars)}
 data_enc = tokenizer.encode(data)
-
 
 data_enc = cp.tensor(data_enc, dtype=cp.int32)
 X = cp.stack(
@@ -57,7 +54,6 @@ model = GPTTransformer(
 )
 model.to_device(device)
 
-
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
 loss_func = nn.CrossEntropy()
@@ -80,15 +76,16 @@ for x, y in train_dl():
     cp.backend.synchronize()
     dt = time.time() - start
 
+    tok_per_s = batch_size * block_size / dt
+    print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")
+
     model.inference()
     if step > 1 and step % 5 == 0:
+        print("Running validation.")
         val_loss = 0.0
         for x_val, y_val in val_dl():
             y_pred = model(x_val)
             val_loss += loss_func(y_pred, y_val).item()
         val_loss /= len(val_dl)
-
-    tok_per_s = batch_size * block_size / dt
-    print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")
 
     step += 1

@@ -96,16 +96,16 @@ class OrigTransformer(Module):
         self.emb_dropout = Dropout(dropout)
 
         # Transformer blocks
-        block_kwargs = {
-            "in_channels": embedding_dim,
-            "ffwd_channels": ffwd_channels,
-            "n_heads": n_heads,
-            "mask": mask,
-            "dropout": dropout,
-            "dtype": dtype,
-        }
         self.blocks = ModuleList(
-            TransformerBlock(**block_kwargs) for _ in range(n_blocks)
+            TransformerBlock(
+                embedding_dim,
+                ffwd_channels,
+                n_heads,
+                mask,
+                dropout,
+                dtype,
+            )
+            for _ in range(n_blocks)
         )
 
         # Language model head

@@ -4,7 +4,7 @@ import math
 from typing import Optional
 
 from attention_s import MultiHeadAttention
-from compyute.nn.modules.activations import FastGELU
+from compyute.nn.modules.activations import GELU
 from compyute.nn.modules.embedding import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList
@@ -92,17 +92,17 @@ class GPTTransformer(Module):
         init_normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
 
         # Transformer blocks
-        block_kwargs = {
-            "in_channels": embedding_dim,
-            "ffwd_channels": ffwd_channels,
-            "n_heads": n_heads,
-            "out_scale": 1 / math.sqrt(2 * n_blocks),
-            "mask": mask,
-            "dropout": dropout,
-            "dtype": dtype,
-        }
         self.blocks = ModuleList(
-            TransformerBlock(**block_kwargs) for _ in range(n_blocks)
+            TransformerBlock(
+                embedding_dim,
+                ffwd_channels,
+                n_heads,
+                1 / math.sqrt(2 * n_blocks),
+                mask,
+                dropout,
+                dtype,
+            )
+            for _ in range(n_blocks)
         )
 
         # Language model head
@@ -217,7 +217,7 @@ class FeedForward(Module):
     ) -> None:
         super().__init__(label)
         self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
-        self.act = FastGELU()
+        self.act = GELU()
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
         self.down_proj.w *= out_scale
 
