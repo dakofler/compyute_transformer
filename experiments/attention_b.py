@@ -3,9 +3,9 @@
 import math
 from typing import Optional
 
-from compyute.nn.functional.activations import FSoftmax
+from compyute.nn.functional.activations import SoftmaxFn
 from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
-from compyute.nn.functional.regularizations import FDropout
+from compyute.nn.functional.regularizations import DropoutFn
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, validate_input_axes
 from compyute.nn.parameter import Buffer
@@ -122,7 +122,7 @@ class MultiHeadAttention(Module):
         v = v.to_shape(head_shape).transpose((0, 2, 1, 3))
 
         # multi head attention
-        attn, self.attn_w = FSDPAttention.forward(
+        attn, self.attn_w = SDPAttentionFn.forward(
             self.fcache, q, k, v, self.mask, dropout_p, self._retain_values
         )
 
@@ -132,12 +132,12 @@ class MultiHeadAttention(Module):
         # output projection
         y = self.out_proj(attn)
 
-        self.fcache.x_shape, self.fcache.head_shape = x.shape, head_shape
+        self.fcache.push(x.shape, head_shape)
         return y
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        x_shape, head_shape = self.fcache.x_shape, self.fcache.head_shape
+        x_shape, head_shape = self.fcache.pop()
 
         # output gradients
         dy = self.out_proj.backward(dy)
@@ -146,7 +146,7 @@ class MultiHeadAttention(Module):
         dy = dy.to_shape(head_shape).transpose((0, 2, 1, 3))
 
         # multi head attention gradients
-        dq, dk, dv = FSDPAttention.backward(self.fcache, dy)
+        dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
 
         # transpose back to (B, T, H, Ch)and  merge head grads to (B, T, C)
         dq = dq.transpose((0, 2, 1, 3)).to_shape(x_shape)
@@ -156,7 +156,7 @@ class MultiHeadAttention(Module):
         return self.qkv_proj.backward(concat([dq, dk, dv]))
 
 
-class FSDPAttention(Function):
+class SDPAttentionFn(Function):
     """Computes the scaled dot product attention scores."""
 
     @staticmethod
@@ -174,22 +174,22 @@ class FSDPAttention(Function):
         attn_w = q @ k.T / math.sqrt(head_size)
         if mask is not None:
             attn_w += mask[:seq_len, :seq_len]
-        attn_w = FSoftmax.forward(cache, attn_w)
-        attn_w = FDropout.forward(cache, attn_w, dropout_p, dropout_p > 0)
+        attn_w = SoftmaxFn.forward(cache, attn_w)
+        attn_w = DropoutFn.forward(cache, attn_w, dropout_p, dropout_p > 0)
         y = attn_w @ v
 
-        cache.q, cache.k, cache.v, cache.attn_w = q, k, v, attn_w
+        cache.push(q, k, v, attn_w)
         return y, (None if not return_attn_w else attn_w)
 
     @staticmethod
     def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        q, k, v, attn_w = cache.q, cache.k, cache.v, cache.attn_w
+        q, k, v, attn_w = cache.pop()
         head_size = q.shape[-1]
 
         # attention gradients
         dattn_w = dy @ v.T
-        dattn_w = FDropout.backward(cache, dattn_w)
-        dattn_w = FSoftmax.backward(cache, dattn_w) / math.sqrt(head_size)
+        dattn_w = DropoutFn.backward(cache, dattn_w)
+        dattn_w = SoftmaxFn.backward(cache, dattn_w) / math.sqrt(head_size)
 
         # query, key, value gradients
         dq = dattn_w @ k
@@ -238,4 +238,6 @@ def sdp_attention(
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    return FSDPAttention.forward(PseudoCache(), q, k, v, mask, dropout_p, return_attn_w)
+    return SDPAttentionFn.forward(
+        PseudoCache(), q, k, v, mask, dropout_p, return_attn_w
+    )

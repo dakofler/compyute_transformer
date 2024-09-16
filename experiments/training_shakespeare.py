@@ -69,7 +69,7 @@ step = 0
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
-loss_func = nn.CrossEntropy()
+loss_fn = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 # create tensorboard logging directory
@@ -84,17 +84,18 @@ loss = 0.0
 accum_step = 0
 
 while step < max_iter:
-    for x, y in train_dl():
+    for x, y in train_dl:
         accum_step += 1
 
         # training
         model.training()
+        loss_fn.training()
         # forward pass
         y_pred = model(x)
-        loss += loss_func(y_pred, y).item() / grad_accumulation_steps
+        loss += loss_fn(y_pred, y).item() / grad_accumulation_steps
 
         # backward pass
-        loss_grads = loss_func.backward() / grad_accumulation_steps
+        loss_grads = loss_fn.backward() / grad_accumulation_steps
         model.backward(loss_grads)  # compute new gradients
 
         if accum_step == grad_accumulation_steps:
@@ -104,11 +105,12 @@ while step < max_iter:
 
             # validation
             model.inference()
+            loss_fn.inference()
             if step > 1 and step % val_interval == 0:
                 val_loss = 0.0
-                for x_val, y_val in val_dl():
+                for x_val, y_val in val_dl:
                     y_pred = model(x_val)
-                    val_loss += loss_func(y_pred, y_val).item()
+                    val_loss += loss_fn(y_pred, y_val).item()
                 val_loss /= len(val_dl)
                 writer.add_scalar("val/loss", val_loss, step)
 

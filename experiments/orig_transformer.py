@@ -5,16 +5,16 @@ from typing import Optional
 
 from attention_s import MultiHeadAttention
 from compyute.nn.modules.activations import ReLU
-from compyute.nn.modules.embedding import Embedding
+from compyute.nn.modules.embeddings import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList
-from compyute.nn.modules.normalization import LayerNorm
-from compyute.nn.modules.regularization import Dropout
+from compyute.nn.modules.normalizations import LayerNorm
+from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
 from compyute.tensor_ops.creating import arange, zeros
 from compyute.tensor_ops.reshaping import insert_dim
-from compyute.tensor_ops.transforming import cos, exp, sin
+from compyute.tensor_ops.unary import cos, exp, sin
 from compyute.tensors import Tensor
 from compyute.typing import DType
 

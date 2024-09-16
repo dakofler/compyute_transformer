@@ -3,15 +3,15 @@
 import math
 from typing import Optional
 
-from compyute.nn.functional.activations import FSoftmax
+from compyute.nn.functional.activations import SoftmaxFn
 from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
-from compyute.nn.functional.regularizations import FDropout
+from compyute.nn.functional.regularizations import DropoutFn
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
 from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.creating import concat, full, split
+from compyute.tensor_ops.reducing import tensorsum
 from compyute.tensor_ops.selecting import triu
-from compyute.tensor_ops.transforming import tensorsum
 from compyute.tensors import ShapeLike, Tensor
 from compyute.typing import DType
 
@@ -146,7 +146,7 @@ class AttentionHead(Module):
         k = self.key_proj(x)
         v = self.value_proj(x)
 
-        y, self.attn_w = FSDPAttention.forward(
+        y, self.attn_w = SDPAttentionFn.forward(
             self.fcache,
             q,
             k,
@@ -159,14 +159,14 @@ class AttentionHead(Module):
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dq, dk, dv = FSDPAttention.backward(self.fcache, dy)
+        dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
         dx1 = self.query_proj.backward(dq)
         dx2 = self.key_proj.backward(dk)
         dx3 = self.value_proj.backward(dv)
         return dx1 + dx2 + dx3
 
 
-class FSDPAttention(Function):
+class SDPAttentionFn(Function):
     """Computes the scaled dot product attention scores."""
 
     @staticmethod
@@ -184,22 +184,22 @@ class FSDPAttention(Function):
         attn_w = q @ k.T / math.sqrt(head_size)
         if mask is not None:
             attn_w += mask[:seq_len, :seq_len]
-        attn_w = FSoftmax.forward(cache, attn_w)
-        attn_w = FDropout.forward(cache, attn_w, dropout_p, dropout_p > 0)
+        attn_w = SoftmaxFn.forward(cache, attn_w)
+        attn_w = DropoutFn.forward(cache, attn_w, dropout_p, dropout_p > 0)
         y = attn_w @ v
 
-        cache.q, cache.k, cache.v, cache.attn_w = q, k, v, attn_w
+        cache.push(q, k, v, attn_w)
         return y, (None if not return_attn_w else attn_w)
 
     @staticmethod
     def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        q, k, v, attn_w = cache.q, cache.k, cache.v, cache.attn_w
+        q, k, v, attn_w = cache.pop()
         head_size = q.shape[-1]
 
         # attention gradients
         dattn_w = dy @ v.T
-        dattn_w = FDropout.backward(cache, dattn_w)
-        dattn_w = FSoftmax.backward(cache, dattn_w) / math.sqrt(head_size)
+        dattn_w = DropoutFn.backward(cache, dattn_w)
+        dattn_w = SoftmaxFn.backward(cache, dattn_w) / math.sqrt(head_size)
 
         # query, key, value gradients
         dq = dattn_w @ k
@@ -248,4 +248,6 @@ def sdp_attention(
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    return FSDPAttention.forward(PseudoCache(), q, k, v, mask, dropout_p, return_attn_w)
+    return SDPAttentionFn.forward(
+        PseudoCache(), q, k, v, mask, dropout_p, return_attn_w
+    )

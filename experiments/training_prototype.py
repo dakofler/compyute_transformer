@@ -56,7 +56,7 @@ model.to_device(device)
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
-loss_func = nn.CrossEntropy()
+loss_fn = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 grad_accum_steps = batch_size // mini_batch_size
@@ -65,10 +65,11 @@ for x, y in train_dl():
     start = time.time()
 
     model.training()
+    loss_fn.training()
     loss = 0.0
     for i in range(grad_accum_steps):
-        loss += loss_func(model(x), y).item() / grad_accum_steps
-        model.backward(loss_func.backward() / grad_accum_steps)
+        loss += loss_fn(model(x), y).item() / grad_accum_steps
+        model.backward(loss_fn.backward() / grad_accum_steps)
 
     optim.step()  # update parameters
     optim.reset_grads()  # reset all gradients
@@ -80,12 +81,13 @@ for x, y in train_dl():
     print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")
 
     model.inference()
+    loss_fn.inference()
     if step > 1 and step % 5 == 0:
         print("Running validation.")
         val_loss = 0.0
         for x_val, y_val in val_dl():
             y_pred = model(x_val)
-            val_loss += loss_func(y_pred, y_val).item()
+            val_loss += loss_fn(y_pred, y_val).item()
         val_loss /= len(val_dl)
 
     step += 1
