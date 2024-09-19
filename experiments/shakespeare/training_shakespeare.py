@@ -15,7 +15,7 @@ block_size = 256
 embed_dims = 384
 
 batch_size = 64
-mini_batch_size = 32
+mini_batch_size = 64
 val_interval = 250
 max_iter = 2500
 checkpoint_interal = 500
@@ -83,18 +83,16 @@ writer = SummaryWriter(log_dir=logdir)
 loss = 0.0
 accum_step = 0
 
+model.training()
+loss_fn.training()
+
 while step < max_iter:
-    for x, y in train_dl:
+    for x, y in train_dl():
         accum_step += 1
 
         # training
-        model.training()
-        loss_fn.training()
-        # forward pass
         y_pred = model(x)
         loss += loss_fn(y_pred, y).item() / grad_accumulation_steps
-
-        # backward pass
         loss_grads = loss_fn.backward() / grad_accumulation_steps
         model.backward(loss_grads)  # compute new gradients
 
@@ -104,15 +102,19 @@ while step < max_iter:
             writer.add_scalar("train/loss", loss, step)
 
             # validation
-            model.inference()
-            loss_fn.inference()
             if step > 1 and step % val_interval == 0:
+                model.inference()
+                loss_fn.inference()
+
                 val_loss = 0.0
-                for x_val, y_val in val_dl:
+                for x_val, y_val in val_dl():
                     y_pred = model(x_val)
                     val_loss += loss_fn(y_pred, y_val).item()
                 val_loss /= len(val_dl)
                 writer.add_scalar("val/loss", val_loss, step)
+
+                model.training()
+                loss_fn.training()
 
             # save checkpoints
             if step > 1 and step % checkpoint_interal == 0:

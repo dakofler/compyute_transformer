@@ -12,6 +12,7 @@ embed_dims = 384
 block_size = 256
 batch_size = 64
 mini_batch_size = 32
+val_interval = 250
 
 with open("data/tinyshakespeare.txt", "r") as f:
     data = f.read()
@@ -82,7 +83,7 @@ for x, y in train_dl():
 
     model.inference()
     loss_fn.inference()
-    if step > 1 and step % 5 == 0:
+    if step > 1 and step % val_interval == 0:
         print("Running validation.")
         val_loss = 0.0
         for x_val, y_val in val_dl():

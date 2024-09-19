@@ -3,9 +3,9 @@
 import math
 from typing import Optional
 
-from compyute.nn.functional.activations import SoftmaxFn
+from compyute.nn.functional.activation_funcs import SoftmaxFn
 from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
-from compyute.nn.functional.regularizations import DropoutFn
+from compyute.nn.functional.regularization_funcs import DropoutFn
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, validate_input_axes
 from compyute.nn.parameter import Buffer
