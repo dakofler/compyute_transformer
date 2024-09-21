@@ -9,9 +9,9 @@ from compyute.nn.functional.regularization_funcs import DropoutFn
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList, validate_input_axes
 from compyute.nn.parameter import Buffer
-from compyute.tensor_ops.creating import concat, full, split
-from compyute.tensor_ops.reducing import tensorsum
-from compyute.tensor_ops.selecting import triu
+from compyute.tensor_ops.creation_ops import concat, full, split
+from compyute.tensor_ops.reduction_ops import tensorsum
+from compyute.tensor_ops.selection_ops import triu
 from compyute.tensors import ShapeLike, Tensor
 from compyute.typing import DType
 
@@ -101,9 +101,8 @@ class MultiHeadAttention(Module):
             AttentionHead(in_channels, head_size, mask, dropout_p, dtype)
             for _ in range(n_heads)
         )
-
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
-        self.out_proj.w *= out_scale
+        self.out_proj.w.data *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

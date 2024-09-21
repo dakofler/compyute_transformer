@@ -12,9 +12,9 @@ from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
-from compyute.tensor_ops.creating import arange, zeros
-from compyute.tensor_ops.reshaping import insert_dim
-from compyute.tensor_ops.unary import cos, exp, sin
+from compyute.tensor_ops.creation_ops import arange, zeros
+from compyute.tensor_ops.reshape_ops import insert_dim
+from compyute.tensor_ops.unary_ops import cos, exp, sin
 from compyute.tensors import Tensor
 from compyute.typing import DType
 

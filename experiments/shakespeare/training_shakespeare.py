@@ -15,9 +15,8 @@ block_size = 256
 embed_dims = 384
 
 batch_size = 64
-mini_batch_size = 64
 val_interval = 250
-max_iter = 2500
+max_iter = 5000
 checkpoint_interal = 500
 
 
@@ -64,16 +63,15 @@ model = GPTTransformer(
 )
 model.to_device(device)
 
-grad_accumulation_steps = batch_size // mini_batch_size
 step = 0
 
-train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
-val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
+train_dl = nn.utils.Dataloader((X_train, y_train), batch_size, device)
+val_dl = nn.utils.Dataloader((X_val, y_val), batch_size, device, False)
 loss_fn = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 # create tensorboard logging directory
-label = "transformer_shakespeare_2"
+label = "transformer_shakespeare_4"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):
@@ -84,48 +82,45 @@ loss = 0.0
 accum_step = 0
 
 model.training()
-loss_fn.training()
 
 while step < max_iter:
+
     for x, y in train_dl():
-        accum_step += 1
 
         # training
         y_pred = model(x)
-        loss += loss_fn(y_pred, y).item() / grad_accumulation_steps
-        loss_grads = loss_fn.backward() / grad_accumulation_steps
+        loss += loss_fn(y_pred, y).item()
+        loss_grads = loss_fn.backward()
         model.backward(loss_grads)  # compute new gradients
 
-        if accum_step == grad_accumulation_steps:
-            optim.step()  # update parameters
-            optim.reset_grads()  # reset all gradients
-            writer.add_scalar("train/loss", loss, step)
+        optim.step()  # update parameters
+        optim.reset_grads()  # reset all gradients
+        writer.add_scalar("train/loss", loss, step)
 
-            # validation
-            if step > 1 and step % val_interval == 0:
-                model.inference()
-                loss_fn.inference()
+        # validation
+        if step > 1 and step % val_interval == 0:
+            model.inference()
 
+            with cp.nn.no_caching():
                 val_loss = 0.0
                 for x_val, y_val in val_dl():
                     y_pred = model(x_val)
                     val_loss += loss_fn(y_pred, y_val).item()
                 val_loss /= len(val_dl)
-                writer.add_scalar("val/loss", val_loss, step)
+            writer.add_scalar("val/loss", val_loss, step)
 
-                model.training()
-                loss_fn.training()
+            model.training()
 
-            # save checkpoints
-            if step > 1 and step % checkpoint_interal == 0:
-                model_state = model.get_state_dict()
-                optim_state = optim.get_state_dict()
-                state_dict = {"model": model_state, "optim": optim_state}
-                checkpoint_name = f"{label}_{step}.cp"
-                cp.save(state_dict, checkpoint_name)
+        # save checkpoints
+        if step > 1 and step % checkpoint_interal == 0:
+            model_state = model.get_state_dict()
+            optim_state = optim.get_state_dict()
+            state_dict = {"model": model_state, "optim": optim_state}
+            checkpoint_name = f"{label}_{step}.cp"
+            cp.save(state_dict, checkpoint_name)
 
-            if step == max_iter:
-                break
-            step += 1
-            loss = accum_step = 0
-            print(f"{step=}", end="\r")
+        if step == max_iter:
+            break
+        step += 1
+        loss = accum_step = 0
+        print(f"{step=}", end="\r")

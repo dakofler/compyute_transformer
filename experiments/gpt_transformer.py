@@ -12,8 +12,8 @@ from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
-from compyute.tensor_ops.creating import arange
-from compyute.tensor_ops.reshaping import insert_dim
+from compyute.tensor_ops.creation_ops import arange
+from compyute.tensor_ops.reshape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import DType, int32
 
@@ -219,7 +219,7 @@ class FeedForward(Module):
         self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
         self.act = GELU()
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
-        self.down_proj.w *= out_scale
+        self.down_proj.w.data *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

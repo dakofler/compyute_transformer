@@ -8,8 +8,11 @@ from gpt_transformer import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
+
 embed_dims = 384
 block_size = 256
+n_heads = 6
+n_layers = 6
 batch_size = 64
 mini_batch_size = 32
 val_interval = 250
@@ -48,12 +51,18 @@ model = GPTTransformer(
     n_embeddings=tokenizer.vocab_size,
     embedding_dim=embed_dims,
     ffwd_channels=4 * embed_dims,
-    n_heads=6,
-    n_blocks=6,
+    n_heads=n_heads,
+    n_blocks=n_layers,
     max_seq_len=block_size,
     mask=mask,
 )
 model.to_device(device)
+
+summary = nn.utils.modules.get_module_summary(
+    model, (block_size,), input_dtype=cp.int32
+)
+with open("training_prototype.txt", "w") as f:
+    f.write(summary)
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
@@ -63,10 +72,9 @@ optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 grad_accum_steps = batch_size // mini_batch_size
 step = 1
 for x, y in train_dl():
-    start = time.time()
+    start = time.perf_counter()
 
     model.training()
-    loss_fn.training()
     loss = 0.0
     for i in range(grad_accum_steps):
         loss += loss_fn(model(x), y).item() / grad_accum_steps
@@ -76,19 +84,19 @@ for x, y in train_dl():
     optim.reset_grads()  # reset all gradients
 
     cp.backend.synchronize()
-    dt = time.time() - start
+    dt = time.perf_counter() - start
 
     tok_per_s = batch_size * block_size / dt
     print(f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s")
 
-    model.inference()
-    loss_fn.inference()
     if step > 1 and step % val_interval == 0:
+        model.inference()
         print("Running validation.")
-        val_loss = 0.0
-        for x_val, y_val in val_dl():
-            y_pred = model(x_val)
-            val_loss += loss_fn(y_pred, y_val).item()
-        val_loss /= len(val_dl)
+        with nn.no_caching():
+            val_loss = 0.0
+            for x_val, y_val in val_dl():
+                y_pred = model(x_val)
+                val_loss += loss_fn(y_pred, y_val).item()
+            val_loss /= len(val_dl)
 
     step += 1
