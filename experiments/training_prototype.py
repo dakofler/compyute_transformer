@@ -26,17 +26,17 @@ tokenizer.vocab = {i: c for i, c in enumerate(chars)}
 tokenizer.ivocab = {c: i for i, c in enumerate(chars)}
 data_enc = tokenizer.encode(data)
 
-data_enc = cp.tensor(data_enc, dtype=cp.int32)
+data_enc_t = cp.tensor(data_enc, dtype=cp.int32)
 X = cp.stack(
     [
-        data_enc[i * block_size : i * block_size + block_size]
-        for i in range(len(data_enc) // block_size)
+        data_enc_t[i * block_size : i * block_size + block_size]
+        for i in range(len(data_enc_t) // block_size)
     ]
 )
 y = cp.stack(
     [
-        data_enc[i * block_size + 1 : i * block_size + block_size + 1]
-        for i in range(len(data_enc) // block_size)
+        data_enc_t[i * block_size + 1 : i * block_size + block_size + 1]
+        for i in range(len(data_enc_t) // block_size)
     ]
 )
 n = int(len(X) * 0.9)

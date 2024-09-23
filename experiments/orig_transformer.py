@@ -12,7 +12,7 @@ from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
-from compyute.tensor_ops.creation_ops import arange, zeros
+from compyute.tensor_ops.creation_ops import arange, empty, zeros
 from compyute.tensor_ops.reshape_ops import insert_dim
 from compyute.tensor_ops.unary_ops import cos, exp, sin
 from compyute.tensors import Tensor
@@ -112,7 +112,6 @@ class OrigTransformer(Module):
         self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.token_emb(x) + self.pos_emb(x)
         x = self.emb_dropout(x)
@@ -120,13 +119,13 @@ class OrigTransformer(Module):
             x = block(x)
         return self.lm_head(x)
 
-    @Module.register_backward
-    def backward(self, dy: Tensor) -> None:
+    def backward(self, dy: Tensor) -> Tensor:
         dy = self.lm_head.backward(dy)
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         dy = self.emb_dropout.backward(dy)
         self.token_emb.backward(dy)
+        return empty((0,))
 
 
 class TransformerBlock(Module):
@@ -172,13 +171,11 @@ class TransformerBlock(Module):
         self.dropout_2 = Dropout(dropout)
         self.ln_2 = LayerNorm((in_channels,), dtype=dtype)
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.ln_1(x + self.dropout_1(self.attn(x)))
         x = self.ln_2(x + self.dropout_2(self.ffwd(x)))
         return x
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.ln_2.backward(dy)
         dy = dy + self.ffwd.backward(self.dropout_2.backward(dy))
@@ -214,14 +211,12 @@ class FeedForward(Module):
         self.act = ReLU()
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.up_proj(x)
         x = self.act(x)
         x = self.down_proj(x)
         return x
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.down_proj.backward(dy)
         dy = self.act.backward(dy)
@@ -285,10 +280,8 @@ class PositionalEncoding(Module):
 
         self.encodings = Buffer(encodings)
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         return self.encodings[: x.shape[1]]
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         return dy

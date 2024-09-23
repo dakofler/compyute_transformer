@@ -50,7 +50,7 @@ class MultiHeadAttention(Module):
         - Input :math:`(B, S, C_{in})`
         - Output :math:`(B, S, C_{in})`
     where
-        - :math:`B` ... batch axis
+        - :math:`B` ... batch dimension
         - :math:`S` ... sequence
         - :math:`C_{in}` ... input channels
 
@@ -104,7 +104,6 @@ class MultiHeadAttention(Module):
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
         self.out_proj.w.data *= out_scale
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
         dropout_p = self.dropout_p if self._is_training else 0
@@ -117,9 +116,9 @@ class MultiHeadAttention(Module):
 
         # split heads to (B, T, H, Ch), transpose to (B, H, T, Ch)
         head_shape = (*x.shape[:2], self.n_heads, x.shape[-1] // self.n_heads)
-        q = q.to_shape(head_shape).transpose((0, 2, 1, 3))
-        k = k.to_shape(head_shape).transpose((0, 2, 1, 3))
-        v = v.to_shape(head_shape).transpose((0, 2, 1, 3))
+        q = q.view(head_shape).transpose((0, 2, 1, 3))
+        k = k.view(head_shape).transpose((0, 2, 1, 3))
+        v = v.view(head_shape).transpose((0, 2, 1, 3))
 
         # multi head attention
         attn, self.attn_w = SDPAttentionFn.forward(
@@ -127,7 +126,7 @@ class MultiHeadAttention(Module):
         )
 
         # transpose back to (B, T, H, Ch) and merge heads to (B, T, C)
-        attn = attn.transpose((0, 2, 1, 3)).to_shape(x.shape)
+        attn = attn.transpose((0, 2, 1, 3)).view(x.shape)
 
         # output projection
         y = self.out_proj(attn)
@@ -135,7 +134,6 @@ class MultiHeadAttention(Module):
         self.fcache.push(x.shape, head_shape)
         return y
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         x_shape, head_shape = self.fcache.pop()
 
@@ -143,15 +141,15 @@ class MultiHeadAttention(Module):
         dy = self.out_proj.backward(dy)
 
         # split head grads to (B, T, H, Ch), transpose to (B, H, T, Ch)
-        dy = dy.to_shape(head_shape).transpose((0, 2, 1, 3))
+        dy = dy.view(head_shape).transpose((0, 2, 1, 3))
 
         # multi head attention gradients
         dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
 
         # transpose back to (B, T, H, Ch)and  merge head grads to (B, T, C)
-        dq = dq.transpose((0, 2, 1, 3)).to_shape(x_shape)
-        dk = dk.transpose((0, 2, 1, 3)).to_shape(x_shape)
-        dv = dv.transpose((0, 2, 1, 3)).to_shape(x_shape)
+        dq = dq.transpose((0, 2, 1, 3)).view(x_shape)
+        dk = dk.transpose((0, 2, 1, 3)).view(x_shape)
+        dv = dv.transpose((0, 2, 1, 3)).view(x_shape)
 
         return self.qkv_proj.backward(concat([dq, dk, dv]))
 

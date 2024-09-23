@@ -12,7 +12,7 @@ from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
-from compyute.tensor_ops.creation_ops import arange
+from compyute.tensor_ops.creation_ops import arange, empty
 from compyute.tensor_ops.reshape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import DType, int32
@@ -112,7 +112,6 @@ class GPTTransformer(Module):
 
         self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         pos = self.pos[:, : x.shape[-1]]
         x = self.token_emb(x) + self.pos_emb(pos)
@@ -120,13 +119,13 @@ class GPTTransformer(Module):
             x = block(x)
         return self.lm_head(self.ln(x))
 
-    @Module.register_backward
-    def backward(self, dy: Tensor) -> None:
+    def backward(self, dy: Tensor) -> Tensor:
         dy = self.ln.backward(self.lm_head.backward(dy))
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         self.token_emb.backward(dy)
-        self.pos_emb.backward(dy.sum(axis=0))
+        self.pos_emb.backward(dy.sum(0))
+        return empty((0,))
 
 
 class TransformerBlock(Module):
@@ -177,13 +176,11 @@ class TransformerBlock(Module):
         self.ffwd = FeedForward(in_channels, ffwd_channels, out_scale, dtype)
         self.dropout_2 = Dropout(dropout)
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = x + self.dropout_1(self.attn(self.ln_1(x)))
         x = x + self.dropout_2(self.ffwd(self.ln_2(x)))
         return x
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = dy + self.ln_2.backward(self.ffwd.backward(self.dropout_2.backward(dy)))
         dy = dy + self.ln_1.backward(self.attn.backward(self.dropout_1.backward(dy)))
@@ -221,14 +218,12 @@ class FeedForward(Module):
         self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
         self.down_proj.w.data *= out_scale
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.up_proj(x)
         x = self.act(x)
         x = self.down_proj(x)
         return x
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.down_proj.backward(dy)
         dy = self.act.backward(dy)

@@ -50,7 +50,7 @@ class MultiHeadAttention(Module):
         - Input :math:`(B, S, C_{in})`
         - Output :math:`(B, S, C_{in})`
     where
-        - :math:`B` ... batch axis
+        - :math:`B` ... batch dimension
         - :math:`S` ... sequence
         - :math:`C_{in}` ... input channels
 
@@ -107,7 +107,6 @@ class MultiHeadAttention(Module):
         self.out_proj = Linear(in_channels, in_channels, dtype=dtype, label="OutProj")
         self.out_proj.w.data *= out_scale
 
-    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         validate_input_axes(self, x, [3])
         dropout_p = self.dropout_p if self._is_training else 0
@@ -141,7 +140,6 @@ class MultiHeadAttention(Module):
         # output projection
         return self.out_proj(y)
 
-    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dq_heads, dk_heads, dv_heads = [], [], []
 

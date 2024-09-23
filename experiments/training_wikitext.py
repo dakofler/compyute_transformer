@@ -17,10 +17,11 @@ block_size = 1024
 embed_dims = 384
 
 batch_size = 64
-mini_batch_size = 16
+mini_batch_size = 8
 val_interval = 250
 max_iter = 2500
 checkpoint_interal = 500
+
 
 dataset = load_dataset(path="Salesforce/wikitext", name="wikitext-2-v1")
 
@@ -30,7 +31,7 @@ def get_training_corpus():
         yield dataset["train"][i : i + 1000]["text"]
 
 
-file = "tokenizer.json"
+file = "wikitext_tokenizer.json"
 
 if not os.path.exists(file):
     tokenizer = Tokenizer(
@@ -49,9 +50,9 @@ if not os.path.exists(file):
         continuing_subword_prefix="",
     )
     tokenizer.train_from_iterator(get_training_corpus(), trainer=trainer)
-    tokenizer.save("tokenizer.json")
+    tokenizer.save(file)
 else:
-    tokenizer = Tokenizer.from_file("tokenizer.json")
+    tokenizer = Tokenizer.from_file(file)
 
 
 def encode(split):
@@ -104,10 +105,11 @@ model = GPTTransformer(
     n_blocks=6,
     max_seq_len=block_size,
     mask=mask,
+    dropout=0.2,
 )
 model.to_device(device)
 
-label = "transformer_wikitext_1"
+label = "transformer_wikitext_2"
 summary = nn.utils.modules.get_module_summary(
     model, (block_size,), input_dtype=cp.int32
 )
@@ -133,7 +135,6 @@ loss = 0.0
 accum_step = 0
 
 model.training()
-loss_fn.training()
 
 while step < max_iter:
     for x, y in train_dl():
@@ -153,17 +154,15 @@ while step < max_iter:
             # validation
             if step > 1 and step % val_interval == 0:
                 model.inference()
-                loss_fn.inference()
-
-                val_loss = 0.0
-                for x_val, y_val in val_dl():
-                    y_pred = model(x_val)
-                    val_loss += loss_fn(y_pred, y_val).item()
-                val_loss /= len(val_dl)
+                with nn.no_caching():
+                    val_loss = 0.0
+                    for x_val, y_val in val_dl():
+                        y_pred = model(x_val)
+                        val_loss += loss_fn(y_pred, y_val).item()
+                    val_loss /= len(val_dl)
                 writer.add_scalar("val/loss", val_loss, step)
 
                 model.training()
-                loss_fn.training()
 
             # save checkpoints
             if step > 1 and step % checkpoint_interal == 0:
