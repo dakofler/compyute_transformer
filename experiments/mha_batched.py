@@ -83,10 +83,7 @@ class MultiHeadAttention(Module):
         self.dropout = dropout
         self.attn_w: Optional[Tensor] = None
 
-        self.q_proj = Linear(in_channels, in_channels, bias, dtype, "QueryProj")
-        self.k_proj = Linear(in_channels, in_channels, bias, dtype, "KeyProj")
-        self.v_proj = Linear(in_channels, in_channels, bias, dtype, "ValueProj")
-
+        self.in_proj = Linear(in_channels, 3 * in_channels, bias, dtype, "InProj")
         self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj")
         self.out_proj.w.data *= out_scale
 
@@ -96,9 +93,7 @@ class MultiHeadAttention(Module):
         dropout = self.dropout if self._is_training else 0
 
         # input projection
-        q = self.q_proj(x)
-        k = self.k_proj(x)
-        v = self.v_proj(x)
+        q, k, v = split(self.in_proj(x), splits=3, dim=-1)
 
         # split heads to (B, T, H, Ch), transpose to (B, H, T, Ch)
         head_shape = (B, T, self.n_heads, C // self.n_heads)
@@ -139,8 +134,6 @@ class MultiHeadAttention(Module):
         dv = dv.transpose((0, 2, 1, 3)).view(x_shape)
 
         # input projection gradients
-        dx = self.q_proj.backward(dq)
-        dx += self.k_proj.backward(dk)
-        dx += self.v_proj.backward(dv)
+        dx = self.in_proj.backward(concat([dq, dk, dv]))
 
         return dx

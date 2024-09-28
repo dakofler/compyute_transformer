@@ -15,7 +15,7 @@ from compyute.tensor_ops.creation_ops import arange, empty
 from compyute.tensor_ops.reshape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import DType, int32
-from mha_semibatched import MultiHeadAttention
+from mha_batched import MultiHeadAttention
 
 # pre resid layernorm
 # additional ln before lm head
