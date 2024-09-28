@@ -1,14 +1,16 @@
-"""attention neural network module"""
+"""transformer neural network module"""
 
 from typing import Optional
 
-from attention_funcs import SDPAttentionFn
 from compyute.nn.modules.linear import Linear
-from compyute.nn.modules.module import Module
+from compyute.nn.modules.module import Module, ModuleList
 from compyute.nn.parameter import Buffer
-from compyute.tensor_ops.creation_ops import concat, split
+from compyute.tensor_ops.reduction_ops import tensorsum
+from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
 from compyute.typing import DType
+
+from .attention_funcs import SDPAttentionFn
 
 
 class MultiHeadAttention(Module):
@@ -77,63 +79,87 @@ class MultiHeadAttention(Module):
         if in_channels % n_heads != 0:
             raise ValueError("Number of input channels must be divisible by n_heads.")
         super().__init__(label)
-
         self.n_heads = n_heads
-        self.mask = None if not mask else Buffer(mask)
-        self.dropout = dropout
-        self.attn_w: Optional[Tensor] = None
-
-        self.in_proj = Linear(in_channels, 3 * in_channels, bias, dtype, "InProj")
+        head_size = in_channels // n_heads
+        self.heads = ModuleList(
+            AttentionHead(in_channels, head_size, mask, dropout, bias, dtype)
+            for _ in range(n_heads)
+        )
         self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj")
         self.out_proj.w.data *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        B, T, C = x.shape
-        dropout = self.dropout if self._is_training else 0
-
-        # input projection
-        q, k, v = split(self.in_proj(x), splits=3, dim=-1)
-
-        # split heads to (B, T, H, Ch), transpose to (B, H, T, Ch)
-        head_shape = (B, T, self.n_heads, C // self.n_heads)
-        q = q.view(head_shape).transpose((0, 2, 1, 3))
-        k = k.view(head_shape).transpose((0, 2, 1, 3))
-        v = v.view(head_shape).transpose((0, 2, 1, 3))
-
         # multi head attention
-        attn, self.attn_w = SDPAttentionFn.forward(
-            self.fcache, q, k, v, self.mask, dropout, self._retain_values
-        )
-
-        # transpose back to (B, T, H, Ch) and merge heads to (B, T, C)
-        attn = attn.transpose((0, 2, 1, 3)).view(x.shape)
+        attn = concat([h(x) for h in self.heads])
 
         # output projection
         y = self.out_proj(attn)
 
-        self.fcache.push(x.shape, head_shape)
         return y
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        x_shape, head_shape = self.fcache.pop()
-
-        # output gradients
-        dy = self.out_proj.backward(dy)
-
-        # split head grads to (B, T, H, Ch), transpose to (B, H, T, Ch)
-        dy = dy.view(head_shape).transpose((0, 2, 1, 3))
+        # output projection gradients
+        dattn = self.out_proj.backward(dy)
 
         # multi head attention gradients
+        dattn_heads = split(dattn, self.n_heads)
+        dx = tensorsum(
+            h.backward(dattn_head) for h, dattn_head in zip(self.heads, dattn_heads)
+        )
+
+        return dx
+
+
+class AttentionHead(Module):
+
+    def __init__(
+        self,
+        in_channels: int,
+        head_size: int,
+        mask: Optional[Tensor] = None,
+        dropout: float = 0.0,
+        bias: bool = True,
+        dtype: Optional[DType] = None,
+        label: Optional[str] = None,
+    ) -> None:
+        super().__init__(label)
+        self.mask = None if not mask else Buffer(mask)
+        self.dropout = dropout
+        self.attn_w: Optional[Tensor] = None
+
+        self.q_proj = Linear(in_channels, head_size, bias, dtype, "QueryProj")
+        self.k_proj = Linear(in_channels, head_size, bias, dtype, "KeyProj")
+        self.v_proj = Linear(in_channels, head_size, bias, dtype, "ValueProj")
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+        dropout = self.dropout if self._is_training else 0
+
+        q = self.q_proj(x)
+        k = self.k_proj(x)
+        v = self.v_proj(x)
+
+        y, self.attn_w = SDPAttentionFn.forward(
+            self.fcache,
+            q,
+            k,
+            v,
+            self.mask,
+            dropout,
+            self._retain_values,
+        )
+        return y
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        # attention gradients
         dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
 
-        # transpose back to (B, T, H, Ch)and  merge head grads to (B, T, C)
-        dq = dq.transpose((0, 2, 1, 3)).view(x_shape)
-        dk = dk.transpose((0, 2, 1, 3)).view(x_shape)
-        dv = dv.transpose((0, 2, 1, 3)).view(x_shape)
-
         # input projection gradients
-        dx = self.in_proj.backward(concat([dq, dk, dv]))
+        dx = self.q_proj.backward(dq)
+        dx += self.k_proj.backward(dk)
+        dx += self.v_proj.backward(dv)
 
         return dx

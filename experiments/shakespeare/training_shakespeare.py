@@ -2,12 +2,11 @@ import os
 from datetime import datetime
 
 import compyute as cp
+from attention_funcs import get_causal_mask
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from compyute.preprocessing.text import CharacterTokenizer
-
-from experiments.attention_funcs import get_causal_mask
-from experiments.transformer_gpt import GPTTransformer
+from transformer_gpt import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -72,7 +71,7 @@ loss_fn = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 # create tensorboard logging directory
-label = "transformer_shakespeare_4"
+label = "transformer_shakespeare_5"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):

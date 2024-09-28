@@ -15,7 +15,8 @@ from compyute.tensor_ops.creation_ops import arange, empty, zeros
 from compyute.tensor_ops.unary_ops import cos, exp, sin
 from compyute.tensors import Tensor
 from compyute.typing import DType
-from mha_semibatched import MultiHeadAttention
+
+from .mha_batched import MultiHeadAttention
 
 # post resid layernorm
 # sinusoidal pos encodings

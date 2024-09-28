@@ -2,13 +2,14 @@
 
 from typing import Optional
 
-from attention_funcs import SDPAttentionFn
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module
 from compyute.nn.parameter import Buffer
-from compyute.tensor_ops.creation_ops import concat, split
+from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
 from compyute.typing import DType
+
+from .attention_funcs import SDPAttentionFn
 
 
 class MultiHeadAttention(Module):

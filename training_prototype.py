@@ -1,10 +1,11 @@
 import time
 
 import compyute as cp
-from attention_funcs import get_causal_mask
 from compyute import nn
 from compyute.preprocessing.text import CharacterTokenizer
-from transformer_gpt import GPTTransformer
+
+from transformer.attention_funcs import get_causal_mask
+from transformer.gpt import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
