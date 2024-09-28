@@ -3,7 +3,6 @@
 import math
 from typing import Optional
 
-from attention_s import MultiHeadAttention
 from compyute.nn.modules.activations import GELU
 from compyute.nn.modules.embeddings import Embedding
 from compyute.nn.modules.linear import Linear
@@ -16,6 +15,7 @@ from compyute.tensor_ops.creation_ops import arange, empty
 from compyute.tensor_ops.reshape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import DType, int32
+from mha_semibatched import MultiHeadAttention
 
 # pre resid layernorm
 # additional ln before lm head
@@ -49,6 +49,8 @@ class GPTTransformer(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout : float, optional
         Dropout probability. Defaults to ``0.0``.
+    bias : bool, optional
+        Whether to use bias values. Defaults to ``True``.
     dtype: DtypeLike, optional
         Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
@@ -81,6 +83,7 @@ class GPTTransformer(Module):
         max_seq_len: int,
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
+        bias: bool = True,
         dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
@@ -89,17 +92,20 @@ class GPTTransformer(Module):
         # Embeddings
         self.token_emb = Embedding(n_embeddings, embedding_dim, dtype, "TokenEmbedding")
         self.pos_emb = Embedding(max_seq_len, embedding_dim, dtype, "PosEmbedding")
-        init_normal(self.token_emb.w, self.pos_emb.w, std=1 / math.sqrt(embedding_dim))
+        std = 1 / math.sqrt(embedding_dim)
+        init_normal(self.token_emb.w, self.pos_emb.w, std=std)
 
         # Transformer blocks
+        out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
             TransformerBlock(
                 embedding_dim,
                 ffwd_channels,
                 n_heads,
-                1 / math.sqrt(2 * n_blocks),
+                out_scale,
                 mask,
                 dropout,
+                bias,
                 dtype,
             )
             for _ in range(n_blocks)
@@ -107,11 +113,12 @@ class GPTTransformer(Module):
 
         # Language model head
         self.ln = LayerNorm((embedding_dim,), dtype=dtype)
-        self.lm_head = Linear(embedding_dim, n_embeddings, dtype=dtype)
+        self.lm_head = Linear(embedding_dim, n_embeddings, bias, dtype)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
         self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
 
+    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         pos = self.pos[:, : x.shape[-1]]
         x = self.token_emb(x) + self.pos_emb(pos)
@@ -119,6 +126,7 @@ class GPTTransformer(Module):
             x = block(x)
         return self.lm_head(self.ln(x))
 
+    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.ln.backward(self.lm_head.backward(dy))
         for module in reversed(self.blocks):
@@ -129,29 +137,6 @@ class GPTTransformer(Module):
 
 
 class TransformerBlock(Module):
-    """Decoder-only transformer block consisting of a multi head attention block
-    and a feed forward block.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of input channels.
-    ffwd_channels : int
-        Number of channels of the hidden layer in the feed forward block.
-    n_heads : int
-        Number of attention heads.
-    out_scale : float
-        Scale for the output projection.
-    mask : Tensor, optional
-        Attention-mask.
-        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
-    dropout : float
-        Dropout probability.
-    dtype: DtypeLike, optional
-        Datatype of weights and biases.
-    label: str, optional
-        Module label. Defaults to ``None``. If `None`, the class name is used.
-    """
 
     def __init__(
         self,
@@ -161,69 +146,58 @@ class TransformerBlock(Module):
         out_scale: float,
         mask: Optional[Tensor],
         dropout: float,
+        bias: bool,
         dtype: Optional[DType],
-        label: Optional[str] = None,
     ) -> None:
-        super().__init__(label)
+        super().__init__()
 
-        self.ln_1 = LayerNorm((in_channels,), dtype=dtype)
+        self.ln1 = LayerNorm((in_channels,), dtype=dtype)
         self.attn = MultiHeadAttention(
-            in_channels, n_heads, mask, dropout, out_scale, dtype
+            in_channels, n_heads, mask, dropout, out_scale, bias, dtype
         )
-        self.dropout_1 = Dropout(dropout)
+        self.dropout1 = Dropout(dropout)
 
-        self.ln_2 = LayerNorm((in_channels,), dtype=dtype)
-        self.ffwd = FeedForward(in_channels, ffwd_channels, out_scale, dtype)
-        self.dropout_2 = Dropout(dropout)
+        self.ln2 = LayerNorm((in_channels,), dtype=dtype)
+        self.ffwd = FeedForward(in_channels, ffwd_channels, out_scale, bias, dtype)
+        self.dropout2 = Dropout(dropout)
 
+    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        x = x + self.dropout_1(self.attn(self.ln_1(x)))
-        x = x + self.dropout_2(self.ffwd(self.ln_2(x)))
+        x = x + self.dropout1(self.attn(self.ln1(x)))
+        x = x + self.dropout2(self.ffwd(self.ln2(x)))
         return x
 
+    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = dy + self.ln_2.backward(self.ffwd.backward(self.dropout_2.backward(dy)))
-        dy = dy + self.ln_1.backward(self.attn.backward(self.dropout_1.backward(dy)))
+        dy = dy + self.ln2.backward(self.ffwd.backward(self.dropout2.backward(dy)))
+        dy = dy + self.ln1.backward(self.attn.backward(self.dropout1.backward(dy)))
         return dy
 
 
 class FeedForward(Module):
-    """FeedForward block for transformers.
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of input channels.
-    h_channels : int
-        Number of channels of the hidden layer.
-    out_scale : float
-        Scale for the output projection.
-    dtype: DtypeLike, optional
-        Datatype of weights and biases.
-    label: str, optional
-        Module label. Defaults to ``None``. If `None`, the class name is used.
-    """
 
     def __init__(
         self,
         in_channels: int,
         h_channels: int,
         out_scale: float,
+        bias: bool,
         dtype: Optional[DType],
-        label: Optional[str] = None,
     ) -> None:
-        super().__init__(label)
-        self.up_proj = Linear(in_channels, h_channels, dtype=dtype)
+        super().__init__()
+        self.up_proj = Linear(in_channels, h_channels, bias, dtype)
         self.act = GELU()
-        self.down_proj = Linear(h_channels, in_channels, dtype=dtype)
+        self.down_proj = Linear(h_channels, in_channels, bias, dtype)
         self.down_proj.w.data *= out_scale
 
+    @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.up_proj(x)
         x = self.act(x)
         x = self.down_proj(x)
         return x
 
+    @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.down_proj.backward(dy)
         dy = self.act.backward(dy)

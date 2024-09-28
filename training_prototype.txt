@@ -8,9 +8,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -22,9 +22,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -36,9 +36,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -50,9 +50,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -64,9 +64,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -78,9 +78,9 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
-│ │ ├─QueryProj                (256, 384)       (256, 384)             147456         True
-│ │ ├─KeyProj                  (256, 384)       (256, 384)             147456         True
-│ │ ├─ValueProj                (256, 384)       (256, 384)             147456         True
+│ │ ├─QueryProj                (256, 384)       (256, 384)             147840         True
+│ │ ├─KeyProj                  (256, 384)       (256, 384)             147840         True
+│ │ ├─ValueProj                (256, 384)       (256, 384)             147840         True
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
@@ -92,5 +92,5 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 ├─LayerNorm                    (256, 384)       (256, 384)                768         True
 └─Linear                       (256, 384)       (256, 65)               25025         True
 ==========================================================================================
-Parameters: 10763969
-Trainable parameters: 10763969
+Parameters: 10770881
+Trainable parameters: 10770881

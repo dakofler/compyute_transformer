@@ -2,12 +2,13 @@ import os
 from datetime import datetime
 
 import compyute as cp
-from attention_s import get_causal_mask
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from datasets import load_dataset
-from gpt_transformer import GPTTransformer
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers
+
+from experiments.attention_funcs import get_causal_mask
+from experiments.transformer_gpt import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
