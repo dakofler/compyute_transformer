@@ -7,8 +7,8 @@ from compyute.nn.utils.tensorboard import SummaryWriter
 from datasets import load_dataset
 from tokenizers import Tokenizer, models, normalizers, pre_tokenizers, trainers
 
-from experiments.attention_funcs import get_causal_mask
-from experiments.transformer_gpt import GPTTransformer
+from transformer.attention_funcs import get_causal_mask
+from transformer.gpt import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -20,11 +20,12 @@ embed_dims = 384
 batch_size = 64
 mini_batch_size = 8
 val_interval = 250
-max_iter = 2500
+max_iter = 7500
 checkpoint_interal = 500
 
 
-dataset = load_dataset(path="Salesforce/wikitext", name="wikitext-2-v1")
+# Load tokenizer
+dataset = load_dataset(path="Salesforce/wikitext", name="wikitext-103-v1")
 
 
 def get_training_corpus():
@@ -32,9 +33,9 @@ def get_training_corpus():
         yield dataset["train"][i : i + 1000]["text"]
 
 
-file = "wikitext_tokenizer.json"
+tokenizer_file = f"data/wikitext/wikitext_103_tokenizer_{vocab_size}.json"
 
-if not os.path.exists(file):
+if not os.path.exists(tokenizer_file):
     tokenizer = Tokenizer(
         models.WordPiece(unk_token="[UNK]", max_input_chars_per_word=1000000000)
     )
@@ -51,11 +52,12 @@ if not os.path.exists(file):
         continuing_subword_prefix="",
     )
     tokenizer.train_from_iterator(get_training_corpus(), trainer=trainer)
-    tokenizer.save(file)
+    tokenizer.save(tokenizer_file)
 else:
-    tokenizer = Tokenizer.from_file(file)
+    tokenizer = Tokenizer.from_file(tokenizer_file)
 
 
+# encode data
 def encode(split):
     lines = dataset[split]["text"]
     encodings = tokenizer.encode_batch(lines)
@@ -63,12 +65,25 @@ def encode(split):
     token_ids = [
         token_id for token_id_list in token_id_lists for token_id in token_id_list
     ]
-
     return cp.tensor(token_ids).to_int()
 
 
-train_data_enc = encode("train")
-val_data_enc = encode("validation")
+train_data_file = "data/wikitext/train_data_enc.cp"
+if not os.path.exists(train_data_file):
+    print("encoding train data")
+    train_data_enc = encode("train")
+    cp.save(train_data_enc, train_data_file)
+else:
+    train_data_enc = cp.load(train_data_file)
+
+val_data_file = "data/wikitext/val_data_enc.cp"
+if not os.path.exists(val_data_file):
+    print("encoding val data")
+    val_data_enc = encode("validation")
+    cp.save(val_data_enc, val_data_file)
+else:
+    val_data_enc = cp.load(val_data_file)
+
 
 X_train = cp.stack(
     [
@@ -96,6 +111,8 @@ y_val = cp.stack(
     ]
 )
 
+
+# create model
 mask = get_causal_mask((block_size, block_size))
 
 model = GPTTransformer(
@@ -110,26 +127,37 @@ model = GPTTransformer(
 )
 model.to_device(device)
 
-label = "transformer_wikitext_2"
+
+label = "transformer_wikitext_103_1"
 summary = nn.utils.modules.get_module_summary(
     model, (block_size,), input_dtype=cp.int32
 )
 with open(label + ".txt", "w") as f:
     f.write(summary)
 
+
+# train
 grad_accumulation_steps = batch_size // mini_batch_size
-step = 0
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
 loss_fn = nn.CrossEntropy()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
+
+# load checkpoint
+checkpoint = cp.load("transformer_wikitext_103_1_5000.cp")
+model.load_state_dict(checkpoint["model"])
+optim.load_state_dict(checkpoint["optim"])
+
+step = 5000
+
 # create tensorboard logging directory
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):
     os.makedirs(logdir)
+
 
 writer = SummaryWriter(log_dir=logdir)
 loss = 0.0

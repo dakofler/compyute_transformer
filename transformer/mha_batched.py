@@ -7,7 +7,6 @@ from compyute.nn.modules.module import Module
 from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
-from compyute.typing import DType
 
 from .attention_funcs import SDPAttentionFn
 
@@ -50,8 +49,6 @@ class MultiHeadAttention(Module):
         Scale for the output projection. Defaults to ``1.0``.
     bias : bool, optional
         Whether to use bias values. Defaults to ``True``.
-    dtype: DtypeLike, optional
-        Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
 
@@ -72,7 +69,6 @@ class MultiHeadAttention(Module):
         dropout: float = 0.0,
         out_scale: float = 1.0,
         bias: bool = True,
-        dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
         if in_channels % n_heads != 0:
@@ -84,8 +80,8 @@ class MultiHeadAttention(Module):
         self.dropout = dropout
         self.attn_w: Optional[Tensor] = None
 
-        self.in_proj = Linear(in_channels, 3 * in_channels, bias, dtype, "InProj")
-        self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj")
+        self.in_proj = Linear(in_channels, 3 * in_channels, bias, "InProj")
+        self.out_proj = Linear(in_channels, in_channels, bias, "OutProj")
         self.out_proj.w.data *= out_scale
 
     @Module.register_forward
@@ -97,9 +93,9 @@ class MultiHeadAttention(Module):
 
         # split into heads (B, T, H, Ch) and transpose to (B, H, T, Ch)
         head_shape = (*x.shape[:2], self.n_heads, x.shape[-1] // self.n_heads)
-        q = q.view(head_shape).transpose(1, 2)
-        k = k.view(head_shape).transpose(1, 2)
-        v = v.view(head_shape).transpose(1, 2)
+        q = q.view(head_shape).transpose(1, 2).to_contiguous()
+        k = k.view(head_shape).transpose(1, 2).to_contiguous()
+        v = v.view(head_shape).transpose(1, 2).to_contiguous()
 
         # multi head attention
         attn, self.attn_w = SDPAttentionFn.forward(
@@ -123,7 +119,7 @@ class MultiHeadAttention(Module):
         dy = self.out_proj.backward(dy)
 
         # split head grads to (B, T, H, Ch), transpose to (B, H, T, Ch)
-        dy = dy.view(head_shape).transpose(1, 2)
+        dy = dy.view(head_shape).transpose(1, 2).to_contiguous()
 
         # multi head attention gradients
         dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)

@@ -20,7 +20,10 @@ max_iter = 5000
 checkpoint_interal = 500
 
 
-with open("data/tinyshakespeare.txt", "r") as f:
+with open(
+    "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt",
+    "r",
+) as f:
     data = f.read()
 
 

@@ -8,7 +8,6 @@ from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.reduction_ops import tensorsum
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
-from compyute.typing import DType
 
 from .attention_funcs import SDPAttentionFn
 
@@ -51,8 +50,6 @@ class MultiHeadAttention(Module):
         Scale for the output projection. Defaults to ``1.0``.
     bias : bool, optional
         Whether to use bias values. Defaults to ``True``.
-    dtype: DtypeLike, optional
-        Datatype of weights and biases. Defaults to ``None``.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
 
@@ -73,7 +70,6 @@ class MultiHeadAttention(Module):
         dropout: float = 0.0,
         out_scale: float = 1.0,
         bias: bool = True,
-        dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
         if in_channels % n_heads != 0:
@@ -82,10 +78,10 @@ class MultiHeadAttention(Module):
         self.n_heads = n_heads
         head_size = in_channels // n_heads
         self.heads = ModuleList(
-            AttentionHead(in_channels, head_size, mask, dropout, bias, dtype)
+            AttentionHead(in_channels, head_size, mask, dropout, bias)
             for _ in range(n_heads)
         )
-        self.out_proj = Linear(in_channels, in_channels, bias, dtype, "OutProj")
+        self.out_proj = Linear(in_channels, in_channels, bias, "OutProj")
         self.out_proj.w.data *= out_scale
 
     @Module.register_forward
@@ -121,7 +117,6 @@ class AttentionHead(Module):
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
         bias: bool = True,
-        dtype: Optional[DType] = None,
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
@@ -129,9 +124,9 @@ class AttentionHead(Module):
         self.dropout = dropout
         self.attn_w: Optional[Tensor] = None
 
-        self.q_proj = Linear(in_channels, head_size, bias, dtype, "QueryProj")
-        self.k_proj = Linear(in_channels, head_size, bias, dtype, "KeyProj")
-        self.v_proj = Linear(in_channels, head_size, bias, dtype, "ValueProj")
+        self.q_proj = Linear(in_channels, head_size, bias, "QueryProj")
+        self.k_proj = Linear(in_channels, head_size, bias, "KeyProj")
+        self.v_proj = Linear(in_channels, head_size, bias, "ValueProj")
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

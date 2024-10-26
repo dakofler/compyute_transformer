@@ -80,6 +80,9 @@ for x, y in train_dl():
     for i in range(grad_accum_steps):
         loss += loss_fn(model(x), y).item() / grad_accum_steps
         model.backward(loss_fn.backward() / grad_accum_steps)
+        # break
+
+    # break
 
     optim.step()  # update parameters
     optim.reset_grads()  # reset all gradients

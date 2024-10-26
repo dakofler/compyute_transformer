@@ -1,0 +1,78 @@
+GPTTransformer
+==========================================================================================
+Layer                          Input Shape      Output Shape     # Parameters    trainable
+==========================================================================================
+GPTTransformer                 (1024,)          (1024, 8192)                0         True
+├─TokenEmbedding               (1024,)          (1024, 384)           3145728         True
+├─PosEmbedding                 (1024,)          (1024, 384)            393216         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─TransformerBlock             (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ ├─MultiHeadAttention         (1024, 384)      (1024, 384)                 0         True
+│ │ ├─InProj                   (1024, 384)      (1024, 1152)           443520         True
+│ │ └─OutProj                  (1024, 384)      (1024, 384)            147840         True
+│ ├─Dropout                    (1024, 384)      (1024, 384)                 0         True
+│ ├─LayerNorm                  (1024, 384)      (1024, 384)               768         True
+│ └─FeedForward                (1024, 384)      (1024, 384)                 0         True
+│   ├─Linear                   (1024, 384)      (1024, 1536)           591360         True
+│   ├─GELU                     (1024, 1536)     (1024, 1536)                0         True
+│   └─Linear                   (1024, 1536)     (1024, 384)            590208         True
+├─LayerNorm                    (1024, 384)      (1024, 384)               768         True
+└─Linear                       (1024, 384)      (1024, 8192)          3153920         True
+==========================================================================================
+Parameters: 14194688
+Trainable parameters: 14194688

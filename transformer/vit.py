@@ -4,6 +4,7 @@ import math
 from typing import Optional
 
 from compyute.nn.modules.activations import GELU
+from compyute.nn.modules.convolutions import Conv2D
 from compyute.nn.modules.embeddings import Embedding
 from compyute.nn.modules.linear import Linear
 from compyute.nn.modules.module import Module, ModuleList
@@ -26,61 +27,21 @@ from .mha_batched import MultiHeadAttention
 # scale out proj weights by 1/sqrt(2*layers)
 
 
-class GPTTransformer(Module):
-    r"""Docoder-only transformer model following
-    `Radford et al., 2019 <https://cdn.openai.com/better-language-models/language_models_are_unsupervised_multitask_learners.pdf>`_ and
-    `Brown et al., 2020 <https://arxiv.org/pdf/2005.14165>`_.
-
-    Parameters
-    ----------
-    n_embeddings : int
-        Number of embedding vectors.
-    embedding_dim : int
-        Number of embedding dimensions.
-    ffwd_channels : int
-        Number of channels of the hidden layer in the feed forward block.
-    n_heads : int
-        Number of attention heads.
-    n_blocks : int
-        Number of transformer blocks.
-    max_seq_len : int
-        Maximum possible length of the input sequence.
-    mask : Tensor, optional
-        Attention-mask. Defaults to ``None``.
-        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
-    dropout : float, optional
-        Dropout probability. Defaults to ``0.0``.
-    bias : bool, optional
-        Whether to use bias values. Defaults to ``True``.
-    label: str, optional
-        Module label. Defaults to ``None``. If `None`, the class name is used.
-
-
-    .. note::
-        Embeddings are initialized from :math:`\mathcal{N}(0, \sqrt{\frac{1}{C_{in}}})`.
-        Linear layer weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
-
-    .. note::
-        Dropout is applied to the output of each residual block and to attention weights.
-
-    .. note::
-        The weights of the token embedding and the language model head are shared.
-
-    .. note::
-        Normalization is applied before weight layers within
-        residual blocks (pre-weight-normalization).
+class VisionTransformer(Module):
+    r"""Docoder-only vision transformer model following
+    `Dosovitskiy et al., 2021 <https://arxiv.org/pdf/2010.11929>`_.
     """
 
     def __init__(
         self,
-        n_embeddings: int,
+        in_channels: int,
+        image_size: int,
+        patch_size: int,
         embedding_dim: int,
+        n_classes: int,
         ffwd_channels: int,
         n_heads: int,
         n_blocks: int,
-        max_seq_len: int,
-        mask: Optional[Tensor] = None,
         dropout: float = 0.0,
         bias: bool = True,
         label: Optional[str] = None,
@@ -88,41 +49,55 @@ class GPTTransformer(Module):
         super().__init__(label)
 
         # Embeddings
-        self.token_emb = Embedding(n_embeddings, embedding_dim, "TokenEmbedding")
-        self.pos_emb = Embedding(max_seq_len, embedding_dim, "PosEmbedding")
+        self.patch_emb = VisionEmbedding(
+            in_channels,
+            image_size,
+            patch_size,
+            embedding_dim,
+            label="PatchEmbedding",
+        )
+        n_patches = self.patch_emb.n_patches
+
+        self.pos_emb = Embedding(n_patches, embedding_dim, "PosEmbedding")
         std = 1 / math.sqrt(embedding_dim)
-        init_normal(self.token_emb.w, self.pos_emb.w, std=std)
+        init_normal(self.pos_emb.w, std=std)
+
+        # embedding dropout
+        self.emb_dropout = Dropout(dropout)
 
         # Transformer blocks
         out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
             TransformerBlock(
-                embedding_dim, ffwd_channels, n_heads, out_scale, mask, dropout, bias
+                embedding_dim, ffwd_channels, n_heads, out_scale, None, dropout, bias
             )
             for _ in range(n_blocks)
         )
 
-        # Language model head
+        # Model head
         self.ln = LayerNorm((embedding_dim,))
-        self.lm_head = Linear(embedding_dim, n_embeddings, bias)
-        self.lm_head.w = self.token_emb.w  # weight sharing
+        self.lm_head = Linear(n_patches * embedding_dim, n_classes, bias)
 
-        self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
+        self.pos = Buffer(insert_dim(arange(n_patches, dtype=int32), 0))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        pos = self.pos[:, : x.shape[-1]]
-        x = self.token_emb(x) + self.pos_emb(pos)
+        x = self.patch_emb(x) + self.pos_emb(self.pos)
+        x = self.emb_dropout(x)
         for block in self.blocks:
             x = block(x)
-        return self.lm_head(self.ln(x))
+        return self.lm_head(self.ln(x)[:, 0])
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = self.ln.backward(self.lm_head.backward(dy))
+        dy = self.lm_head.backward(dy)
+        # dy_ext = zeros
+        # dy = self.ln.backward(self.flatten.backward(self.lm_head.backward(dy)))
+        # TODO: Add this special classification token
         for module in reversed(self.blocks):
             dy = module.backward(dy)
-        self.token_emb.backward(dy)
+        dy = self.emb_dropout.backward(dy)
+        self.patch_emb.backward(dy)
         self.pos_emb.backward(dy.sum(0))
         return empty((0,))
 
@@ -165,24 +140,58 @@ class TransformerBlock(Module):
 class FeedForward(Module):
 
     def __init__(
-        self, in_channels: int, h_channels: int, out_scale: float, bias: bool
+        self, in_channels: int, h_channels: int, dropout: float, bias: bool
     ) -> None:
         super().__init__()
         self.up_proj = Linear(in_channels, h_channels, bias)
         self.act = GELU()
+        self.dropout = Dropout(dropout)
         self.down_proj = Linear(h_channels, in_channels, bias)
-        self.down_proj.w.data *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.up_proj(x)
         x = self.act(x)
+        x = self.dropout(x)
         x = self.down_proj(x)
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.down_proj.backward(dy)
+        dy = self.dropout.backward(dy)
         dy = self.act.backward(dy)
         dy = self.up_proj.backward(dy)
         return dy
+
+
+class VisionEmbedding(Module):
+    def __init__(
+        self,
+        in_channels: int,
+        image_size: int,
+        patch_size: int,
+        embedding_dim: int,
+        label: Optional[str] = None,
+    ):
+        super().__init__(label)
+        self.n_patches = (image_size // patch_size) ** 2
+        self.conv = Conv2D(in_channels, embedding_dim, patch_size, stride=patch_size)
+
+    @Module.register_forward
+    def forward(self, x: Tensor) -> Tensor:
+
+        # Create embeddings (B, C, H, W) -> (B, E, P, P)
+        x = self.conv(x)
+
+        # Flatten patches and transpose (B, E, P, P) -> (B, E, P**2) -> (B, P**2, E)
+        y = x.view((*x.shape[:-2], -1)).transpose(1, 2).to_contiguous()
+
+        self.fcache.push(x.shape)
+        return y
+
+    @Module.register_backward
+    def backward(self, dy: Tensor) -> Tensor:
+        (conv_shape,) = self.fcache.pop()
+        dy = dy.transpose(1, 2).to_contiguous().view(conv_shape)
+        return self.conv.backward(dy)

@@ -12,11 +12,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
@@ -24,11 +23,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
@@ -36,11 +34,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
@@ -48,11 +45,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
@@ -60,11 +56,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─TransformerBlock             (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
 │ ├─MultiHeadAttention         (256, 384)       (256, 384)                  0         True
@@ -72,11 +67,10 @@ GPTTransformer                 (256,)           (256, 65)                   0   
 │ │ └─OutProj                  (256, 384)       (256, 384)             147840         True
 │ ├─Dropout                    (256, 384)       (256, 384)                  0         True
 │ ├─LayerNorm                  (256, 384)       (256, 384)                768         True
-│ ├─FeedForward                (256, 384)       (256, 384)                  0         True
-│ │ ├─Linear                   (256, 384)       (256, 1536)            591360         True
-│ │ ├─GELU                     (256, 1536)      (256, 1536)                 0         True
-│ │ └─Linear                   (256, 1536)      (256, 384)             590208         True
-│ └─Dropout                    (256, 384)       (256, 384)                  0         True
+│ └─FeedForward                (256, 384)       (256, 384)                  0         True
+│   ├─Linear                   (256, 384)       (256, 1536)            591360         True
+│   ├─GELU                     (256, 1536)      (256, 1536)                 0         True
+│   └─Linear                   (256, 1536)      (256, 384)             590208         True
 ├─LayerNorm                    (256, 384)       (256, 384)                768         True
 └─Linear                       (256, 384)       (256, 65)               25025         True
 ==========================================================================================
