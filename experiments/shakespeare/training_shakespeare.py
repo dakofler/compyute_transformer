@@ -2,6 +2,7 @@ import os
 from datetime import datetime
 
 import compyute as cp
+import requests
 from attention_funcs import get_causal_mask
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
@@ -20,11 +21,10 @@ max_iter = 5000
 checkpoint_interal = 500
 
 
-with open(
-    "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt",
-    "r",
-) as f:
-    data = f.read()
+response = requests.get(
+    "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+)
+data = response.text
 
 
 chars = sorted(list(set(data)))
