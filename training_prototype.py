@@ -2,7 +2,7 @@ import time
 
 import compyute as cp
 from compyute import nn
-from compyute.preprocessing.text import CharacterTokenizer
+from tokenizers.character_tokenizer import CharacterTokenizer
 
 from transformer.attention_funcs import get_causal_mask
 from transformer.gpt import GPTTransformer
@@ -67,7 +67,7 @@ with open("training_prototype.txt", "w") as f:
 
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
-loss_fn = nn.CrossEntropy()
+loss_fn = nn.CrossEntropyLoss()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 grad_accum_steps = batch_size // mini_batch_size
@@ -80,7 +80,7 @@ for x, y in train_dl():
     for i in range(grad_accum_steps):
         loss += loss_fn(model(x), y).item() / grad_accum_steps
         model.backward(loss_fn.backward() / grad_accum_steps)
-        # break
+    #     break
 
     # break
 

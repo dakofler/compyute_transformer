@@ -71,7 +71,7 @@ class SDPAttentionFn(Function):
         attn_w = q @ k.T / math.sqrt(head_size)
         if mask is not None:
             attn_w += mask[:seq_len, :seq_len]
-        attn_w = SoftmaxFn.forward(cache, attn_w)
+        attn_w = SoftmaxFn.forward(cache, attn_w, dim=-1)
         attn_w = DropoutFn.forward(cache, attn_w, dropout, dropout > 0)
         y = attn_w @ v
 
