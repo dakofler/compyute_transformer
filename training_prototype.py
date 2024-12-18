@@ -1,6 +1,7 @@
 import time
 
 import compyute as cp
+import requests
 from compyute import nn
 from tokenizers.character_tokenizer import CharacterTokenizer
 
@@ -18,8 +19,9 @@ batch_size = 64
 mini_batch_size = 32
 val_interval = 250
 
-with open("data/tinyshakespeare.txt", "r") as f:
-    data = f.read()
+DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+response = requests.get(DATA_URL)
+data = response.text
 
 chars = sorted(list(set(data)))
 tokenizer = CharacterTokenizer()
@@ -59,12 +61,6 @@ model = GPTTransformer(
 )
 model.to_device(device)
 
-summary = nn.utils.modules.get_module_summary(
-    model, (block_size,), input_dtype=cp.int32
-)
-with open("training_prototype.txt", "w") as f:
-    f.write(summary)
-
 train_dl = nn.utils.Dataloader((X_train, y_train), mini_batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), mini_batch_size, device, False)
 loss_fn = nn.CrossEntropyLoss()
@@ -80,9 +76,6 @@ for x, y in train_dl():
     for i in range(grad_accum_steps):
         loss += loss_fn(model(x), y).item() / grad_accum_steps
         model.backward(loss_fn.backward() / grad_accum_steps)
-    #     break
-
-    # break
 
     optim.step()  # update parameters
     optim.reset_grads()  # reset all gradients

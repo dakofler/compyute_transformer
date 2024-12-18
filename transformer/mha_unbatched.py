@@ -137,13 +137,7 @@ class AttentionHead(Module):
         v = self.v_proj(x)
 
         y, self.attn_w = SDPAttentionFn.forward(
-            self.fcache,
-            q,
-            k,
-            v,
-            self.mask,
-            dropout,
-            self._retain_values,
+            self.fcache, q, k, v, self.mask, dropout, self._retain_values
         )
         return y
 

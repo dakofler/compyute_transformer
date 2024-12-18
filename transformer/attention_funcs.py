@@ -8,32 +8,33 @@ from compyute.nn.functional.functions import Function, FunctionCache, PseudoCach
 from compyute.nn.functional.regularization_funcs import DropoutFn
 from compyute.tensor_ops.creation_ops import full
 from compyute.tensor_ops.selection_ops import tril, triu
-from compyute.tensors import ShapeError, ShapeLike, Tensor
+from compyute.tensors import ShapeError, Tensor
 
 
-def get_causal_mask(shape: ShapeLike) -> Tensor:
+def get_causal_mask(max_seq_len: int) -> Tensor:
     """Returns a causal mask used for the self-attention mechanism.
 
     Parameters
     ----------
-    shape : ShapeLike
-        Shape of the mask.
+    max_seq_len : int
+        Maximum sequence length.
 
     Returns
     -------
     Tensor
         Causal mask.
     """
+    shape = (max_seq_len, max_seq_len)
     return triu(full(shape, float("-inf")), diag_index=1)
 
 
-def get_sliding_window_mask(shape: ShapeLike, window_size: int) -> Tensor:
+def get_sliding_window_mask(max_seq_len: int, window_size: int) -> Tensor:
     """Returns a sliding window mask used for the self-attention mechanism.
 
     Parameters
     ----------
-    shape : ShapeLike
-        Shape of the mask.
+    max_seq_len : int
+        Maximum sequence length.
     window_size : int
         Size of the sliding window.
 
@@ -42,6 +43,7 @@ def get_sliding_window_mask(shape: ShapeLike, window_size: int) -> Tensor:
     Tensor
         Sliding window mask.
     """
+    shape = (max_seq_len, max_seq_len)
     upper_mask = triu(full(shape, float("-inf")), diag_index=1)
     lower_mask = tril(full(shape, float("-inf")), diag_index=-window_size)
     return upper_mask + lower_mask

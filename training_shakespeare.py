@@ -3,11 +3,12 @@ from datetime import datetime
 
 import compyute as cp
 import requests
-from attention_funcs import get_causal_mask
 from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
-from compyute.preprocessing.text import CharacterTokenizer
-from transformer_gpt import GPTTransformer
+from tokenizers import CharacterTokenizer
+
+from transformer.attention_funcs import get_causal_mask
+from transformer.gpt import GPTTransformer
 
 cp.random.set_seed(1337)
 device = cp.cuda
@@ -21,9 +22,8 @@ max_iter = 5000
 checkpoint_interal = 500
 
 
-response = requests.get(
-    "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
-)
+DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
+response = requests.get(DATA_URL)
 data = response.text
 
 
@@ -52,7 +52,7 @@ y_train = y.to_int()[:n]
 X_val = X.to_int()[n:]
 y_val = y.to_int()[n:]
 
-mask = get_causal_mask((block_size, block_size))
+mask = get_causal_mask(block_size)
 
 model = GPTTransformer(
     n_embeddings=tokenizer.vocab_size,
@@ -70,11 +70,11 @@ step = 0
 
 train_dl = nn.utils.Dataloader((X_train, y_train), batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), batch_size, device, False)
-loss_fn = nn.CrossEntropy()
+loss_fn = nn.CrossEntropyLoss()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
 # create tensorboard logging directory
-label = "transformer_shakespeare_5"
+label = "transformer_shakespeare_6"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):
