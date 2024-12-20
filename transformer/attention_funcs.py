@@ -60,7 +60,7 @@ class SDPAttentionFn(Function):
         v: Tensor,
         mask: Optional[Tensor],
         dropout: float,
-        return_attn_w: bool,
+        return_attn_weights: bool,
     ) -> tuple[Tensor, Optional[Tensor]]:
         if q.ndim < 2:
             raise ShapeError(f"Expected query to be at least 2D, got {q.ndim}D.")
@@ -70,15 +70,15 @@ class SDPAttentionFn(Function):
             raise ShapeError(f"Expected value to be at least 2D, got {v.ndim}D.")
         *_, seq_len, head_size = q.shape
 
-        attn_w = q @ k.T / math.sqrt(head_size)
+        attn_weights = q @ k.T / math.sqrt(head_size)
         if mask is not None:
-            attn_w += mask[:seq_len, :seq_len]
-        attn_w = SoftmaxFn.forward(cache, attn_w, dim=-1)
-        attn_w = DropoutFn.forward(cache, attn_w, dropout, dropout > 0)
-        y = attn_w @ v
+            attn_weights += mask[:seq_len, :seq_len]
+        attn_weights = SoftmaxFn.forward(cache, attn_weights, dim=-1)
+        attn_weights = DropoutFn.forward(cache, attn_weights, dropout, dropout > 0)
+        y = attn_weights @ v
 
-        cache.push(q, k, v, attn_w)
-        return y, (None if not return_attn_w else attn_w)
+        cache.push(q, k, v, attn_weights)
+        return y, (None if not return_attn_weights else attn_weights)
 
     @staticmethod
     def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
@@ -86,13 +86,13 @@ class SDPAttentionFn(Function):
         head_size = q.shape[-1]
 
         # attention gradients
-        dattn_w = dy @ v.T
-        dattn_w = DropoutFn.backward(cache, dattn_w)
-        dattn_w = SoftmaxFn.backward(cache, dattn_w) / math.sqrt(head_size)
+        dattn_weights = dy @ v.T
+        dattn_weights = DropoutFn.backward(cache, dattn_weights)
+        dattn_weights = SoftmaxFn.backward(cache, dattn_weights) / math.sqrt(head_size)
 
         # query, key, value gradients
-        dq = dattn_w @ k
-        dk = dattn_w.T @ q
+        dq = dattn_weights @ k
+        dk = dattn_weights.T @ q
         dv = attn_w.T @ dy
 
         return dq, dk, dv
@@ -104,7 +104,7 @@ def sdp_attention(
     v: Tensor,
     mask: Optional[Tensor] = None,
     dropout: float = 0.0,
-    return_attn_w: bool = False,
+    return_attn_weights: bool = False,
 ) -> tuple[Tensor, Optional[Tensor]]:
     r"""Computes the scaled dot product attention scores.
 
@@ -121,7 +121,7 @@ def sdp_attention(
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout : float, optional
         Dropout probability of attention weights. Defaults to ``0``.
-    return_attn_w : bool, optional
+    return_attn_weights : bool, optional
         Whether to also return the computed attention weights. Defaults to ``False``.
     return_grad_fn : bool, optional
         Whether to also return the according gradient function. Defaults to ``False``.
@@ -130,11 +130,13 @@ def sdp_attention(
     -------
     Tensor
         Output tensor.
-    Callable[[Tensor], tuple[Tensor, Tensor, Optional[Tensor]]], optional
-        Gradient function.
+    Optional[Tensor]
+        Attention weights if ``return_attn_weights`` is set to ``True``.
 
     See Also
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    return SDPAttentionFn.forward(PseudoCache(), q, k, v, mask, dropout, return_attn_w)
+    return SDPAttentionFn.forward(
+        PseudoCache(), q, k, v, mask, dropout, return_attn_weights
+    )

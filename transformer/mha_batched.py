@@ -78,7 +78,7 @@ class MultiHeadAttention(Module):
         self.n_heads = n_heads
         self.mask = None if not mask else Buffer(mask)
         self.dropout = dropout
-        self.attn_w: Optional[Tensor] = None
+        self.attn_weights: Optional[Tensor] = None
 
         self.in_proj = Linear(in_channels, 3 * in_channels, bias, "InProj")
         self.out_proj = Linear(in_channels, in_channels, bias, "OutProj")
@@ -98,7 +98,7 @@ class MultiHeadAttention(Module):
         v = v.view(head_shape).transpose(1, 2).to_contiguous()
 
         # multi head attention
-        attn, self.attn_w = SDPAttentionFn.forward(
+        attn, self.attn_weights = SDPAttentionFn.forward(
             self.fcache, q, k, v, self.mask, dropout, self._retain_values
         )
 

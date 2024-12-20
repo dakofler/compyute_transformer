@@ -23,17 +23,17 @@ from .mha_batched import MultiHeadAttention
 # shared weights of token emb and lm head
 
 
-class OrigTransformer(Module):
+class VaswaniTransformer(Module):
     r"""Docoder-only transformer model following
     `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
 
     Parameters
     ----------
-    n_embeddings : int
+    n_embeds : int
         Number of embedding vectors.
-    embedding_dim : int
+    embed_dim : int
         Number of embedding dimensions.
-    ffwd_channels : int
+    mlp_channels : int
         Number of channels of the hidden layer in the feed forward block.
     n_heads : int
         Number of attention heads.
@@ -70,9 +70,9 @@ class OrigTransformer(Module):
 
     def __init__(
         self,
-        n_embeddings: int,
-        embedding_dim: int,
-        ffwd_channels: int,
+        n_embeds: int,
+        embed_dim: int,
+        mlp_channels: int,
         n_heads: int,
         n_blocks: int,
         max_seq_len: int,
@@ -85,11 +85,11 @@ class OrigTransformer(Module):
         super().__init__(label)
 
         # Embeddings
-        self.token_emb = Embedding(n_embeddings, embedding_dim, "TokenEmbedding")
-        std = 1 / math.sqrt(embedding_dim)
+        self.token_emb = Embedding(n_embeds, embed_dim, "TokenEmbedding")
+        std = 1 / math.sqrt(embed_dim)
         init_normal(self.token_emb.w, std=std)
         self.pos_emb = PositionalEncoding(
-            max_seq_len, embedding_dim, pos_enc_base, "PosEncoding"
+            max_seq_len, embed_dim, pos_enc_base, "PosEncoding"
         )
 
         # Embedding dropout
@@ -97,12 +97,12 @@ class OrigTransformer(Module):
 
         # Transformer blocks
         self.blocks = ModuleList(
-            TransformerBlock(embedding_dim, ffwd_channels, n_heads, mask, dropout, bias)
+            TransformerBlock(embed_dim, mlp_channels, n_heads, mask, dropout, bias)
             for _ in range(n_blocks)
         )
 
         # Language model head
-        self.lm_head = Linear(embedding_dim, n_embeddings, bias)
+        self.lm_head = Linear(embed_dim, n_embeds, bias)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
     @Module.register_forward
@@ -128,7 +128,7 @@ class TransformerBlock(Module):
     def __init__(
         self,
         in_channels: int,
-        ffwd_channels: int,
+        mlp_channels: int,
         n_heads: int,
         mask: Optional[Tensor],
         dropout: float,
@@ -139,25 +139,25 @@ class TransformerBlock(Module):
         self.attn = MultiHeadAttention(in_channels, n_heads, mask, bias=bias)
         self.dropout = Dropout(dropout)
         self.ln1 = LayerNorm((in_channels,))
-        self.ffwd = FeedForward(in_channels, ffwd_channels, bias)
+        self.mlp = MLP(in_channels, mlp_channels, bias)
         self.ln2 = LayerNorm((in_channels,))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = self.ln1(x + self.dropout(self.attn(x)))
-        x = self.ln2(x + self.dropout(self.ffwd(x)))
+        x = self.ln2(x + self.dropout(self.mlp(x)))
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = self.ln2.backward(dy)
-        dy = dy + self.ffwd.backward(self.dropout.backward(dy))
+        dy = dy + self.mlp.backward(self.dropout.backward(dy))
         dy = self.ln1.backward(dy)
         dy = dy + self.attn.backward(self.dropout.backward(dy))
         return dy
 
 
-class FeedForward(Module):
+class MLP(Module):
 
     def __init__(
         self, in_channels: int, h_channels: int, bias: bool, label: Optional[str] = None

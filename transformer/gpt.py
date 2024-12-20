@@ -33,12 +33,12 @@ class GPTTransformer(Module):
 
     Parameters
     ----------
-    n_embeddings : int
+    n_embeds : int
         Number of embedding vectors.
-    embedding_dim : int
+    embed_dim : int
         Number of embedding dimensions.
-    ffwd_channels : int
-        Number of channels of the hidden layer in the feed forward block.
+    mlp_channels : int
+        Number of channels of the hidden layer in the MLP.
     n_heads : int
         Number of attention heads.
     n_blocks : int
@@ -74,9 +74,9 @@ class GPTTransformer(Module):
 
     def __init__(
         self,
-        n_embeddings: int,
-        embedding_dim: int,
-        ffwd_channels: int,
+        n_embeds: int,
+        embed_dim: int,
+        mlp_channels: int,
         n_heads: int,
         n_blocks: int,
         max_seq_len: int,
@@ -88,23 +88,23 @@ class GPTTransformer(Module):
         super().__init__(label)
 
         # Embeddings
-        self.token_emb = Embedding(n_embeddings, embedding_dim, "TokenEmbedding")
-        self.pos_emb = Embedding(max_seq_len, embedding_dim, "PosEmbedding")
-        std = 1 / math.sqrt(embedding_dim)
+        self.token_emb = Embedding(n_embeds, embed_dim, "TokenEmbedding")
+        self.pos_emb = Embedding(max_seq_len, embed_dim, "PosEmbedding")
+        std = 1 / math.sqrt(embed_dim)
         init_normal(self.token_emb.w, self.pos_emb.w, std=std)
 
         # Transformer blocks
         out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
             TransformerBlock(
-                embedding_dim, ffwd_channels, n_heads, out_scale, mask, dropout, bias
+                embed_dim, mlp_channels, n_heads, out_scale, mask, dropout, bias
             )
             for _ in range(n_blocks)
         )
 
         # Language model head
-        self.ln = LayerNorm((embedding_dim,))
-        self.lm_head = Linear(embedding_dim, n_embeddings, bias)
+        self.ln = LayerNorm((embed_dim,))
+        self.lm_head = Linear(embed_dim, n_embeds, bias)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
         self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
@@ -132,7 +132,7 @@ class TransformerBlock(Module):
     def __init__(
         self,
         in_channels: int,
-        ffwd_channels: int,
+        mlp_channels: int,
         n_heads: int,
         out_scale: float,
         mask: Optional[Tensor],
@@ -147,22 +147,22 @@ class TransformerBlock(Module):
         )
         self.dropout = Dropout(dropout)
         self.ln2 = LayerNorm((in_channels,))
-        self.ffwd = FeedForward(in_channels, ffwd_channels, out_scale, bias)
+        self.mlp = MLP(in_channels, mlp_channels, out_scale, bias)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
         x = x + self.dropout(self.attn(self.ln1(x)))
-        x = x + self.dropout(self.ffwd(self.ln2(x)))
+        x = x + self.dropout(self.mlp(self.ln2(x)))
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = dy + self.ln2.backward(self.ffwd.backward(self.dropout.backward(dy)))
+        dy = dy + self.ln2.backward(self.mlp.backward(self.dropout.backward(dy)))
         dy = dy + self.ln1.backward(self.attn.backward(self.dropout.backward(dy)))
         return dy
 
 
-class FeedForward(Module):
+class MLP(Module):
 
     def __init__(
         self, in_channels: int, h_channels: int, out_scale: float, bias: bool

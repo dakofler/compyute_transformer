@@ -55,9 +55,9 @@ y_val = y.to_int()[n:]
 mask = get_causal_mask(block_size)
 
 model = GPTTransformer(
-    n_embeddings=tokenizer.vocab_size,
-    embedding_dim=embed_dims,
-    ffwd_channels=4 * embed_dims,
+    n_embeds=tokenizer.vocab_size,
+    embed_dim=embed_dims,
+    mlp_channels=4 * embed_dims,
     n_heads=6,
     n_blocks=6,
     max_seq_len=block_size,
