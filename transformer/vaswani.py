@@ -15,7 +15,7 @@ from compyute.tensor_ops.creation_ops import arange, empty, zeros
 from compyute.tensor_ops.unary_ops import cos, exp, sin
 from compyute.tensors import Tensor
 
-from .mha_batched import MultiHeadAttention
+from .mha_batched import MultiHeadSelfAttention
 
 # post resid layernorm
 # sinusoidal pos encodings
@@ -39,7 +39,7 @@ class VaswaniTransformer(Module):
         Number of attention heads.
     n_blocks : int
         Number of transformer blocks.
-    max_seq_len : int
+    max_context_len : int
         Maximum possible length of the input sequence.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
@@ -75,7 +75,7 @@ class VaswaniTransformer(Module):
         mlp_channels: int,
         n_heads: int,
         n_blocks: int,
-        max_seq_len: int,
+        max_context_len: int,
         pos_enc_base: float = 10000.0,
         mask: Optional[Tensor] = None,
         dropout: float = 0.1,
@@ -89,7 +89,7 @@ class VaswaniTransformer(Module):
         std = 1 / math.sqrt(embed_dim)
         init_normal(self.token_emb.w, std=std)
         self.pos_emb = PositionalEncoding(
-            max_seq_len, embed_dim, pos_enc_base, "PosEncoding"
+            max_context_len, embed_dim, pos_enc_base, "PosEncoding"
         )
 
         # Embedding dropout
@@ -136,7 +136,7 @@ class TransformerBlock(Module):
     ) -> None:
         super().__init__()
 
-        self.attn = MultiHeadAttention(in_channels, n_heads, mask, bias=bias)
+        self.attn = MultiHeadSelfAttention(in_channels, n_heads, mask, bias=bias)
         self.dropout = Dropout(dropout)
         self.ln1 = LayerNorm((in_channels,))
         self.mlp = MLP(in_channels, mlp_channels, bias)

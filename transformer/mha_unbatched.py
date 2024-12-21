@@ -12,7 +12,7 @@ from compyute.tensors import Tensor
 from .attention_funcs import SDPAttentionFn
 
 
-class MultiHeadAttention(Module):
+class MultiHeadSelfAttention(Module):
     r"""Multi Head Self-Attention as described by
     `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
 
@@ -78,7 +78,7 @@ class MultiHeadAttention(Module):
         self.n_heads = n_heads
         head_size = in_channels // n_heads
         self.heads = ModuleList(
-            AttentionHead(in_channels, head_size, mask, dropout, bias)
+            SelfAttentionHead(in_channels, head_size, mask, dropout, bias)
             for _ in range(n_heads)
         )
         self.out_proj = Linear(in_channels, in_channels, bias, "OutProj")
@@ -108,7 +108,7 @@ class MultiHeadAttention(Module):
         return dx
 
 
-class AttentionHead(Module):
+class SelfAttentionHead(Module):
 
     def __init__(
         self,

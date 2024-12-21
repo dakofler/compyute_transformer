@@ -18,7 +18,7 @@ from compyute.tensor_ops.shape_ops import broadcast_to, concat, insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
-from .mha_batched import MultiHeadAttention
+from .mha_batched import MultiHeadSelfAttention
 
 # pre resid layernorm
 # additional ln before lm head
@@ -78,10 +78,9 @@ class VisionTransformer(Module):
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        class_emb = broadcast_to(
-            self.class_emb, (x.shape[0], 1, self.class_emb.shape[-1])
-        )
-        x = concat([class_emb, self.patch_emb(x)], dim=1) + self.pos_emb(self.pos)
+        patch_emb = self.patch_emb(x)
+        class_emb = broadcast_to(self.class_emb, (x.shape[0], 1, patch_emb.shape[-1]))
+        x = concat([class_emb, patch_emb], dim=1) + self.pos_emb(self.pos)
         x = self.emb_dropout(x)
         for block in self.blocks:
             x = block(x)
@@ -113,7 +112,7 @@ class TransformerBlock(Module):
         super().__init__()
 
         self.ln1 = LayerNorm((in_channels,))
-        self.attn = MultiHeadAttention(
+        self.attn = MultiHeadSelfAttention(
             in_channels, n_heads, None, dropout, out_scale, bias
         )
         self.dropout = Dropout(dropout)

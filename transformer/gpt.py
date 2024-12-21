@@ -16,7 +16,7 @@ from compyute.tensor_ops.shape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
-from .mha_batched import MultiHeadAttention
+from .mha_batched import MultiHeadSelfAttention
 
 # pre resid layernorm
 # additional ln before lm head
@@ -43,7 +43,7 @@ class GPTTransformer(Module):
         Number of attention heads.
     n_blocks : int
         Number of transformer blocks.
-    max_seq_len : int
+    max_context_len : int
         Maximum possible length of the input sequence.
     mask : Tensor, optional
         Attention-mask. Defaults to ``None``.
@@ -79,7 +79,7 @@ class GPTTransformer(Module):
         mlp_channels: int,
         n_heads: int,
         n_blocks: int,
-        max_seq_len: int,
+        max_context_len: int,
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
         bias: bool = True,
@@ -89,7 +89,7 @@ class GPTTransformer(Module):
 
         # Embeddings
         self.token_emb = Embedding(n_embeds, embed_dim, "TokenEmbedding")
-        self.pos_emb = Embedding(max_seq_len, embed_dim, "PosEmbedding")
+        self.pos_emb = Embedding(max_context_len, embed_dim, "PosEmbedding")
         std = 1 / math.sqrt(embed_dim)
         init_normal(self.token_emb.w, self.pos_emb.w, std=std)
 
@@ -107,7 +107,7 @@ class GPTTransformer(Module):
         self.lm_head = Linear(embed_dim, n_embeds, bias)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
-        self.pos = Buffer(insert_dim(arange(max_seq_len, dtype=int32), 0))
+        self.pos = Buffer(insert_dim(arange(max_context_len, dtype=int32), 0))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
@@ -142,7 +142,7 @@ class TransformerBlock(Module):
         super().__init__()
 
         self.ln1 = LayerNorm((in_channels,))
-        self.attn = MultiHeadAttention(
+        self.attn = MultiHeadSelfAttention(
             in_channels, n_heads, mask, dropout, out_scale, bias
         )
         self.dropout = Dropout(dropout)

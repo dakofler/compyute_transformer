@@ -11,12 +11,12 @@ from compyute.tensor_ops.selection_ops import tril, triu
 from compyute.tensors import ShapeError, Tensor
 
 
-def get_causal_mask(max_seq_len: int) -> Tensor:
+def get_causal_mask(max_context_len: int) -> Tensor:
     """Returns a causal mask used for the self-attention mechanism.
 
     Parameters
     ----------
-    max_seq_len : int
+    max_context_len : int
         Maximum sequence length.
 
     Returns
@@ -24,16 +24,16 @@ def get_causal_mask(max_seq_len: int) -> Tensor:
     Tensor
         Causal mask.
     """
-    shape = (max_seq_len, max_seq_len)
+    shape = (max_context_len, max_context_len)
     return triu(full(shape, float("-inf")), diag_index=1)
 
 
-def get_sliding_window_mask(max_seq_len: int, window_size: int) -> Tensor:
+def get_sliding_window_mask(max_context_len: int, window_size: int) -> Tensor:
     """Returns a sliding window mask used for the self-attention mechanism.
 
     Parameters
     ----------
-    max_seq_len : int
+    max_context_len : int
         Maximum sequence length.
     window_size : int
         Size of the sliding window.
@@ -43,7 +43,7 @@ def get_sliding_window_mask(max_seq_len: int, window_size: int) -> Tensor:
     Tensor
         Sliding window mask.
     """
-    shape = (max_seq_len, max_seq_len)
+    shape = (max_context_len, max_context_len)
     upper_mask = triu(full(shape, float("-inf")), diag_index=1)
     lower_mask = tril(full(shape, float("-inf")), diag_index=-window_size)
     return upper_mask + lower_mask
@@ -68,11 +68,11 @@ class SDPAttentionFn(Function):
             raise ShapeError(f"Expected key to be at least 2D, got {k.ndim}D.")
         if v.ndim < 2:
             raise ShapeError(f"Expected value to be at least 2D, got {v.ndim}D.")
-        *_, seq_len, head_size = q.shape
+        *_, context_len, head_size = q.shape
 
         attn_weights = q @ k.T / math.sqrt(head_size)
         if mask is not None:
-            attn_weights += mask[:seq_len, :seq_len]
+            attn_weights += mask[:context_len, :context_len]
         attn_weights = SoftmaxFn.forward(cache, attn_weights, dim=-1)
         attn_weights = DropoutFn.forward(cache, attn_weights, dropout, dropout > 0)
         y = attn_weights @ v
@@ -82,7 +82,7 @@ class SDPAttentionFn(Function):
 
     @staticmethod
     def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        q, k, v, attn_w = cache.pop()
+        q, k, v, attn_weights = cache.pop()
         head_size = q.shape[-1]
 
         # attention gradients
@@ -93,7 +93,7 @@ class SDPAttentionFn(Function):
         # query, key, value gradients
         dq = dattn_weights @ k
         dk = dattn_weights.T @ q
-        dv = attn_w.T @ dy
+        dv = attn_weights.T @ dy
 
         return dq, dk, dv
 

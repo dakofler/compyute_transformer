@@ -13,9 +13,10 @@ from transformer.gpt import GPTTransformer
 cp.random.set_seed(1337)
 device = cp.cuda
 
-block_size = 256
+context_length = 256
 embed_dims = 384
-
+n_heads = 6
+n_blocks = 6
 batch_size = 64
 val_interval = 250
 max_iter = 5000
@@ -35,14 +36,14 @@ tokenizer.ivocab = {c: i for i, c in enumerate(chars)}
 data_enc = cp.tensor(tokenizer.encode(data), dtype=cp.int32)
 X = cp.stack(
     [
-        data_enc[i * block_size : i * block_size + block_size]
-        for i in range(len(data_enc) // block_size)
+        data_enc[i * context_length : i * context_length + context_length]
+        for i in range(len(data_enc) // context_length)
     ]
 )
 y = cp.stack(
     [
-        data_enc[i * block_size + 1 : i * block_size + block_size + 1]
-        for i in range(len(data_enc) // block_size)
+        data_enc[i * context_length + 1 : i * context_length + context_length + 1]
+        for i in range(len(data_enc) // context_length)
     ]
 )
 
@@ -52,15 +53,15 @@ y_train = y.to_int()[:n]
 X_val = X.to_int()[n:]
 y_val = y.to_int()[n:]
 
-mask = get_causal_mask(block_size)
+mask = get_causal_mask(context_length)
 
 model = GPTTransformer(
     n_embeds=tokenizer.vocab_size,
     embed_dim=embed_dims,
     mlp_channels=4 * embed_dims,
-    n_heads=6,
-    n_blocks=6,
-    max_seq_len=block_size,
+    n_heads=n_heads,
+    n_blocks=n_blocks,
+    max_context_len=context_length,
     mask=mask,
     dropout=0.2,
 )
