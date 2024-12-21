@@ -8,7 +8,7 @@ from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
 
-from .attention_funcs import SDPAttentionFn
+from .attention_funcs import SDPAttentionFunction
 
 
 class MultiHeadSelfAttention(Module):
@@ -104,8 +104,8 @@ class MultiHeadSelfAttention(Module):
 
         # multi head attention: compute attention weights for each head, concat results
         for q_head, k_head, v_head in zip(q_heads, k_heads, v_heads):
-            attn_head, attn_w_head = SDPAttentionFn.forward(
-                self.fcache,
+            attn_head, attn_w_head = SDPAttentionFunction.forward(
+                self.function_ctx,
                 q_head,
                 k_head,
                 v_head,
@@ -134,7 +134,9 @@ class MultiHeadSelfAttention(Module):
 
         # multi head attention gradients
         for dattn_head in reversed(dattn_heads):  # reversed, because of cache order
-            dq_head, dk_head, dv_head = SDPAttentionFn.backward(self.fcache, dattn_head)
+            dq_head, dk_head, dv_head = SDPAttentionFunction.backward(
+                self.function_ctx, dattn_head
+            )
             dq_heads.append(dq_head)
             dk_heads.append(dk_head)
             dv_heads.append(dv_head)

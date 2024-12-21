@@ -89,7 +89,7 @@ for x, y in train_dl():
     if step > 1 and step % val_interval == 0:
         model.inference()
         print("Running validation.")
-        with nn.no_caching():
+        with nn.no_cache_ctx():
             val_loss = 0.0
             for x_val, y_val in val_dl():
                 y_pred = model(x_val)

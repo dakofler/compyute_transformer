@@ -3,9 +3,9 @@
 import math
 from typing import Optional
 
-from compyute.nn.functional.activation_funcs import SoftmaxFn
-from compyute.nn.functional.functions import Function, FunctionCache, PseudoCache
-from compyute.nn.functional.regularization_funcs import DropoutFn
+from compyute.nn.functional.activation_funcs import SoftmaxFunction
+from compyute.nn.functional.functions import Function, FunctionContext, PseudoContext
+from compyute.nn.functional.regularization_funcs import DropoutFunction
 from compyute.tensor_ops.creation_ops import full
 from compyute.tensor_ops.selection_ops import tril, triu
 from compyute.tensors import ShapeError, Tensor
@@ -49,12 +49,12 @@ def get_sliding_window_mask(max_context_len: int, window_size: int) -> Tensor:
     return upper_mask + lower_mask
 
 
-class SDPAttentionFn(Function):
+class SDPAttentionFunction(Function):
     """Computes the scaled dot product attention scores."""
 
     @staticmethod
     def forward(
-        cache: FunctionCache,
+        ctx: FunctionContext,
         q: Tensor,
         k: Tensor,
         v: Tensor,
@@ -73,22 +73,23 @@ class SDPAttentionFn(Function):
         attn_weights = q @ k.T / math.sqrt(head_size)
         if mask is not None:
             attn_weights += mask[:context_len, :context_len]
-        attn_weights = SoftmaxFn.forward(cache, attn_weights, dim=-1)
-        attn_weights = DropoutFn.forward(cache, attn_weights, dropout, dropout > 0)
+        attn_weights = SoftmaxFunction.forward(ctx, attn_weights, dim=-1)
+        attn_weights = DropoutFunction.forward(ctx, attn_weights, dropout, dropout > 0)
         y = attn_weights @ v
 
-        cache.push(q, k, v, attn_weights)
+        ctx.add(q, k, v, attn_weights)
         return y, (None if not return_attn_weights else attn_weights)
 
     @staticmethod
-    def backward(cache: FunctionCache, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
-        q, k, v, attn_weights = cache.pop()
+    def backward(ctx: FunctionContext, dy: Tensor) -> tuple[Tensor, Tensor, Tensor]:
+        q, k, v, attn_weights = ctx.get()
         head_size = q.shape[-1]
 
         # attention gradients
         dattn_weights = dy @ v.T
-        dattn_weights = DropoutFn.backward(cache, dattn_weights)
-        dattn_weights = SoftmaxFn.backward(cache, dattn_weights) / math.sqrt(head_size)
+        dattn_weights = DropoutFunction.backward(ctx, dattn_weights)
+        dattn_weights = SoftmaxFunction.backward(ctx, dattn_weights)
+        dattn_weights /= math.sqrt(head_size)
 
         # query, key, value gradients
         dq = dattn_weights @ k
@@ -137,6 +138,6 @@ def sdp_attention(
     ----------
     :class:`compyute.nn.MultiHeadAttention`
     """
-    return SDPAttentionFn.forward(
-        PseudoCache(), q, k, v, mask, dropout, return_attn_weights
+    return SDPAttentionFunction.forward(
+        PseudoContext(), q, k, v, mask, dropout, return_attn_weights
     )

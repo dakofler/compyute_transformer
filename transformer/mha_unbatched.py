@@ -9,7 +9,7 @@ from compyute.tensor_ops.reduction_ops import tensorsum
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
 
-from .attention_funcs import SDPAttentionFn
+from .attention_funcs import SDPAttentionFunction
 
 
 class MultiHeadSelfAttention(Module):
@@ -136,15 +136,15 @@ class SelfAttentionHead(Module):
         k = self.k_proj(x)
         v = self.v_proj(x)
 
-        y, self.attn_w = SDPAttentionFn.forward(
-            self.fcache, q, k, v, self.mask, dropout, self._retain_values
+        y, self.attn_w = SDPAttentionFunction.forward(
+            self.function_ctx, q, k, v, self.mask, dropout, self._retain_values
         )
         return y
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         # attention gradients
-        dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
+        dq, dk, dv = SDPAttentionFunction.backward(self.function_ctx, dy)
 
         # input projection gradients
         dx = self.q_proj.backward(dq)

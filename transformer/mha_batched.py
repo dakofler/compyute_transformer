@@ -8,7 +8,7 @@ from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
 
-from .attention_funcs import SDPAttentionFn
+from .attention_funcs import SDPAttentionFunction
 
 
 class MultiHeadSelfAttention(Module):
@@ -98,8 +98,8 @@ class MultiHeadSelfAttention(Module):
         v = v.view(head_shape).transpose(1, 2).to_contiguous()
 
         # multi head attention
-        attn, self.attn_weights = SDPAttentionFn.forward(
-            self.fcache, q, k, v, self.mask, dropout, self._retain_values
+        attn, self.attn_weights = SDPAttentionFunction.forward(
+            self.function_ctx, q, k, v, self.mask, dropout, self._retain_values
         )
 
         # transpose back to (B, T, H, Ch) and merge heads to (B, T, C)
@@ -108,12 +108,12 @@ class MultiHeadSelfAttention(Module):
         # output projection
         y = self.out_proj(attn)
 
-        self.fcache.push(x.shape, head_shape)
+        self.function_ctx.add(x.shape, head_shape)
         return y
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        x_shape, head_shape = self.fcache.pop()
+        x_shape, head_shape = self.function_ctx.get()
 
         # output gradients
         dy = self.out_proj.backward(dy)
@@ -122,7 +122,7 @@ class MultiHeadSelfAttention(Module):
         dy = dy.view(head_shape).transpose(1, 2).to_contiguous()
 
         # multi head attention gradients
-        dq, dk, dv = SDPAttentionFn.backward(self.fcache, dy)
+        dq, dk, dv = SDPAttentionFunction.backward(self.function_ctx, dy)
 
         # transpose back to (B, T, H, Ch)and  merge head grads to (B, T, C)
         dq = dq.transpose(1, 2).view(x_shape)

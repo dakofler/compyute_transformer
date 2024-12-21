@@ -180,11 +180,11 @@ class PatchEmbedding(Module):
         # Flatten patches and transpose (B, E, P, P) -> (B, E, P**2) -> (B, P**2, E)
         y = x.view((*x.shape[:-2], -1)).transpose(1, 2).to_contiguous()
 
-        self.fcache.push(x.shape)
+        self.function_ctx.add(x.shape)
         return y
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        (conv_shape,) = self.fcache.pop()
+        conv_shape = self.function_ctx.get()
         dy = dy.transpose(1, 2).to_contiguous().view(conv_shape)
         return self.conv.backward(dy)

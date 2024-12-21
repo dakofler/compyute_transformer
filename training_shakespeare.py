@@ -105,7 +105,7 @@ while step < max_iter:
         if step > 1 and step % val_interval == 0:
             model.inference()
 
-            with cp.nn.no_caching():
+            with cp.nn.no_cache_ctx():
                 val_loss = 0.0
                 for x_val, y_val in val_dl():
                     y_pred = model(x_val)
