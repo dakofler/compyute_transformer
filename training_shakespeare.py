@@ -18,8 +18,11 @@ embed_dims = 384
 n_heads = 6
 n_blocks = 6
 batch_size = 64
+
+step = 0
+max_steps = 10000
+label = "transformer_shakespeare_6"
 val_interval = 250
-max_iter = 5000
 checkpoint_interal = 500
 
 
@@ -67,15 +70,18 @@ model = GPTTransformer(
 )
 model.to_device(device)
 
-step = 0
-
 train_dl = nn.utils.Dataloader((X_train, y_train), batch_size, device)
 val_dl = nn.utils.Dataloader((X_val, y_val), batch_size, device, False)
 loss_fn = nn.CrossEntropyLoss()
 optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
+# load from checkpoint
+if step > 0:
+    checkpoint = cp.load(f"{label}_{step}.cp")
+    model.load_state_dict(checkpoint["model"], target_device=device)
+    optim.load_state_dict(checkpoint["optim"], target_device=device)
+
 # create tensorboard logging directory
-label = "transformer_shakespeare_6"
 timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
 logdir = f"./runs/{label}_{timestamp}/"
 if not os.path.exists(logdir):
@@ -87,7 +93,7 @@ accum_step = 0
 
 model.training()
 
-while step < max_iter:
+while step < max_steps:
 
     for x, y in train_dl():
 
@@ -123,7 +129,7 @@ while step < max_iter:
             checkpoint_name = f"{label}_{step}.cp"
             cp.save(state_dict, checkpoint_name)
 
-        if step == max_iter:
+        if step == max_steps:
             break
         step += 1
         loss = accum_step = 0
