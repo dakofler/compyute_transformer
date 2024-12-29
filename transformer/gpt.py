@@ -145,20 +145,22 @@ class TransformerBlock(Module):
         self.attn = MultiHeadSelfAttention(
             in_channels, n_heads, mask, dropout, out_scale, bias
         )
-        self.dropout = Dropout(dropout)
+        self.dropout1 = Dropout(dropout)
+
         self.ln2 = LayerNorm((in_channels,))
         self.mlp = MLP(in_channels, mlp_channels, out_scale, bias)
+        self.dropout2 = Dropout(dropout)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        x = x + self.dropout(self.attn(self.ln1(x)))
-        x = x + self.dropout(self.mlp(self.ln2(x)))
+        x = x + self.dropout1(self.attn(self.ln1(x)))
+        x = x + self.dropout2(self.mlp(self.ln2(x)))
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = dy + self.ln2.backward(self.mlp.backward(self.dropout.backward(dy)))
-        dy = dy + self.ln1.backward(self.attn.backward(self.dropout.backward(dy)))
+        dy = dy + self.ln2.backward(self.mlp.backward(self.dropout2.backward(dy)))
+        dy = dy + self.ln1.backward(self.attn.backward(self.dropout1.backward(dy)))
         return dy
 
 
