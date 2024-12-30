@@ -1,3 +1,4 @@
+import sys
 import time
 
 import compyute as cp
@@ -5,8 +6,8 @@ import requests
 from compyute import nn
 from tokenizers.character_tokenizer import CharacterTokenizer
 
+from transformer.experimental.gpt_debug import GPTTransformer
 from transformer.attention_funcs import get_causal_mask
-from transformer.gpt import GPTTransformer
 
 
 def main() -> None:
@@ -19,6 +20,7 @@ def main() -> None:
     n_heads = 6
     n_blocks = 6
     batch_size = 64
+    val_interval = 250
 
     # load data
     DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
@@ -50,6 +52,16 @@ def main() -> None:
     # create model
     mask = get_causal_mask(context_length)
 
+    if len(sys.argv) != 2:
+        raise ValueError("Must provide implementation as argument.")
+    implementation = sys.argv[1]
+
+    if implementation not in {"batched", "unbatched", "semibatched"}:
+        raise ValueError(
+            "Invalid implementation argument. Must be one of 'batched', 'unbatched', 'semibatched'."
+        )
+    print(f"Using {implementation} attenttion implementation.")
+
     model = GPTTransformer(
         n_embeds=tokenizer.vocab_size,
         embed_dim=embed_dims,
@@ -58,6 +70,7 @@ def main() -> None:
         n_blocks=n_blocks,
         max_context_len=context_length,
         mask=mask,
+        implementation=implementation,
     )
     model.to_device(device)
 
@@ -66,7 +79,8 @@ def main() -> None:
     loss_fn = nn.CrossEntropyLoss()
     optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
-    for step, (x, y) in enumerate(train_dl()):
+    step = 1
+    for x, y in train_dl():
         start = time.perf_counter()
 
         model.training()
@@ -81,8 +95,9 @@ def main() -> None:
 
         tok_per_s = batch_size * context_length / dt
         print(
-            f"step {step+1:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s"
+            f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s"
         )
+        step += 1
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-requests==2.32.3
+requests>=2.32.3
 compyute @ git+https://github.com/dakofler/Compyute.git@dev
 tokenizers @ git+https://github.com/dakofler/Tokenizers.git
 torch --index-url https://download.pytorch.org/whl/cu121

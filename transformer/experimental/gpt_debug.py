@@ -1,7 +1,7 @@
 """transformer neural network module"""
 
 import math
-from typing import Optional
+from typing import Optional, Literal
 
 from compyute.nn.modules.activations import GELU
 from compyute.nn.modules.embeddings import Embedding
@@ -16,7 +16,9 @@ from compyute.tensor_ops.shape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
-from .mha_batched import MultiHeadSelfAttention
+from ..mha_batched import MultiHeadSelfAttention as BMHA
+from ..mha_semibatched import MultiHeadSelfAttention as SMHA
+from ..mha_unbatched import MultiHeadSelfAttention as UMHA
 
 # pre resid layernorm
 # additional ln before lm head
@@ -84,8 +86,17 @@ class GPTTransformer(Module):
         dropout: float = 0.0,
         bias: bool = True,
         label: Optional[str] = None,
+        implementation: Literal["batched", "semibatched", "unbatched"] = "batched",
     ) -> None:
         super().__init__(label)
+
+        match implementation:
+            case "unbatched":
+                attn_impl = UMHA
+            case "semibatched":
+                attn_impl = SMHA
+            case _:
+                attn_impl = BMHA
 
         # Embeddings
         self.token_emb = Embedding(n_embeds, embed_dim, "TokenEmbedding")
@@ -97,6 +108,7 @@ class GPTTransformer(Module):
         out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
             TransformerBlock(
+                attn_impl,
                 embed_dim,
                 mlp_channels,
                 n_heads,
@@ -137,6 +149,7 @@ class TransformerBlock(Module):
 
     def __init__(
         self,
+        attn_impl: Module,
         in_channels: int,
         mlp_channels: int,
         n_heads: int,
@@ -148,9 +161,7 @@ class TransformerBlock(Module):
         super().__init__()
 
         self.ln1 = LayerNorm((in_channels,))
-        self.attn = MultiHeadSelfAttention(
-            in_channels, n_heads, mask, dropout, out_scale, bias
-        )
+        self.attn = attn_impl(in_channels, n_heads, mask, dropout, out_scale, bias)
         self.dropout1 = Dropout(dropout)
 
         self.ln2 = LayerNorm((in_channels,))
