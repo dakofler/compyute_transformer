@@ -4,7 +4,7 @@ import time
 import compyute as cp
 import requests
 from compyute import nn
-from tokenizers.character_tokenizer import CharacterTokenizer
+from simple_tokenizers import CharacterTokenizer
 
 from transformer.attention_funcs import get_causal_mask
 from transformer.experimental.gpt_debug import GPTTransformer
