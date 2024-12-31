@@ -114,13 +114,11 @@ def main() -> None:
             # validation
             if step > 1 and step % val_interval == 0:
                 model.inference()
-
-                with cp.nn.no_cache_ctx():
-                    val_loss = 0.0
-                    for x_val, y_val in val_dl():
-                        y_pred = model(x_val)
-                        val_loss += loss_fn(y_pred, y_val).item()
-                    val_loss /= len(val_dl)
+                val_loss = 0.0
+                for x_val, y_val in val_dl():
+                    y_pred = model(x_val)
+                    val_loss += loss_fn(y_pred, y_val).item()
+                val_loss /= len(val_dl)
                 writer.add_scalar("val/loss", val_loss, step)
 
                 model.training()

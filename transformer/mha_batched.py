@@ -124,7 +124,7 @@ class MultiHeadSelfAttention(Module):
         # multi head attention gradients
         dq, dk, dv = SDPAttentionFunction.backward(self.function_ctx, dy)
 
-        # transpose back to (B, T, H, Ch)and  merge head grads to (B, T, C)
+        # transpose back to (B, T, H, Ch) and  merge head grads to (B, T, C)
         dq = dq.transpose(1, 2).view(x_shape)
         dk = dk.transpose(1, 2).view(x_shape)
         dv = dv.transpose(1, 2).view(x_shape)

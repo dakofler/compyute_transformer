@@ -1,8 +1,8 @@
-*.whl
 test.ipynb
 *.cp
-data/*
 *.html
+data/*
+runs/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

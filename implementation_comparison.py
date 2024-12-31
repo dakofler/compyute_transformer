@@ -6,8 +6,8 @@ import requests
 from compyute import nn
 from tokenizers.character_tokenizer import CharacterTokenizer
 
-from transformer.experimental.gpt_debug import GPTTransformer
 from transformer.attention_funcs import get_causal_mask
+from transformer.experimental.gpt_debug import GPTTransformer
 
 
 def main() -> None:
@@ -20,7 +20,6 @@ def main() -> None:
     n_heads = 6
     n_blocks = 6
     batch_size = 64
-    val_interval = 250
 
     # load data
     DATA_URL = "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"
@@ -79,12 +78,15 @@ def main() -> None:
     loss_fn = nn.CrossEntropyLoss()
     optim = nn.optimizers.AdamW(model.get_parameters(), lr=3e-4)
 
-    step = 1
-    for x, y in train_dl():
+    avg_dt = avg_tok_per_s = 0.0
+
+    steps = 20
+    for step in range(1, steps + 1):
+        x, y = next(iter(train_dl()))
         start = time.perf_counter()
 
         model.training()
-        loss = loss_fn(model(x), y).item()
+        _ = loss_fn(model(x), y)
         model.backward(loss_fn.backward())
 
         optim.step()
@@ -92,12 +94,16 @@ def main() -> None:
 
         cp.backend.synchronize()
         dt = time.perf_counter() - start
-
         tok_per_s = batch_size * context_length / dt
-        print(
-            f"step {step:4} | loss {loss:.4f} | dt {dt:.4f} s | {tok_per_s:.1f} tokens/s"
-        )
-        step += 1
+
+        avg_dt += dt
+        avg_tok_per_s += tok_per_s
+
+        print(f"{step}/{steps}", end="\r")
+
+    avg_dt /= steps
+    avg_tok_per_s /= steps
+    print(f"avg_dt {avg_dt:.4f} s | {avg_tok_per_s:.1f} avg tokens/s")
 
 
 if __name__ == "__main__":
