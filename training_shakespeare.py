@@ -7,7 +7,7 @@ from compyute import nn
 from compyute.nn.utils.tensorboard import SummaryWriter
 from simple_tokenizers import CharacterTokenizer
 
-from transformer.attention_funcs import get_causal_mask
+from transformer.attention_utils import get_causal_mask
 from transformer.gpt import GPTTransformer
 
 

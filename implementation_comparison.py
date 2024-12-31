@@ -6,7 +6,7 @@ import requests
 from compyute import nn
 from simple_tokenizers import CharacterTokenizer
 
-from transformer.attention_funcs import get_causal_mask
+from transformer.attention_utils import get_causal_mask
 from transformer.experimental.gpt_debug import GPTTransformer
 
 
