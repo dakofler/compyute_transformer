@@ -1,6 +1,6 @@
 # Compyute Transformer
 
-This is a repo used to develop the transformer modules and functions for `Compyute` (https://github.com/dakofler/Compyute) as part of my master's thesis.
+This is a repo used to develop the transformer modules and functions for `Compyute` (https://github.com/dakofler/compyute) as part of my master's thesis.
 
 ## Installation
 
