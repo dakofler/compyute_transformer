@@ -21,7 +21,7 @@ def main() -> None:
     n_heads = 6
     n_blocks = 6
     batch_size = 64
-    dropout = 0.5  # 6: 0.2
+    dropout = 0.5
 
     # training parameters
     step = 1

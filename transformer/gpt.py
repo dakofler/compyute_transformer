@@ -12,7 +12,6 @@ from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
 from compyute.nn.utils.initializers import init_normal
 from compyute.tensor_ops.creation_ops import arange, empty
-from compyute.tensor_ops.shape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
@@ -113,15 +112,15 @@ class GPTTransformer(Module):
         self.lm_head = Linear(embed_dim, n_embeds, bias)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
-        self.pos = Buffer(insert_dim(arange(max_context_len, dtype=int32), 0))
+        self.pos = Buffer(arange(max_context_len, dtype=int32).view((1, -1)))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        pos = self.pos[:, : x.shape[-1]]
-        x = self.token_emb(x) + self.pos_emb(pos)
+        x = self.token_emb(x) + self.pos_emb(self.pos[:, : x.shape[-1]])
         for block in self.blocks:
             x = block(x)
-        return self.lm_head(self.ln(x))
+        x = self.lm_head(self.ln(x))
+        return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
@@ -137,7 +136,7 @@ class TransformerBlock(Module):
 
     def __init__(
         self,
-        in_channels: int,
+        embed_dim: int,
         mlp_channels: int,
         n_heads: int,
         out_scale: float,
@@ -147,14 +146,14 @@ class TransformerBlock(Module):
     ) -> None:
         super().__init__()
 
-        self.ln1 = LayerNorm((in_channels,))
+        self.ln1 = LayerNorm((embed_dim,))
         self.attn = MultiHeadSelfAttention(
-            in_channels, n_heads, mask, dropout, out_scale, bias
+            embed_dim, n_heads, mask, dropout, out_scale, bias
         )
         self.dropout1 = Dropout(dropout)
 
-        self.ln2 = LayerNorm((in_channels,))
-        self.mlp = MLP(in_channels, mlp_channels, out_scale, bias)
+        self.ln2 = LayerNorm((embed_dim,))
+        self.mlp = MLP(embed_dim, mlp_channels, out_scale, bias)
         self.dropout2 = Dropout(dropout)
 
     @Module.register_forward
@@ -173,13 +172,13 @@ class TransformerBlock(Module):
 class MLP(Module):
 
     def __init__(
-        self, in_channels: int, h_channels: int, out_scale: float, bias: bool
+        self, embed_dim: int, mlp_channels: int, out_scale: float, bias: bool
     ) -> None:
         super().__init__()
-        self.up_proj = Linear(in_channels, h_channels, bias)
+        self.up_proj = Linear(embed_dim, mlp_channels, bias)
         self.act = GELU()
-        self.down_proj = Linear(h_channels, in_channels, bias)
-        self.down_proj.w.data *= out_scale
+        self.down_proj = Linear(mlp_channels, embed_dim, bias)
+        self.down_proj.w *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

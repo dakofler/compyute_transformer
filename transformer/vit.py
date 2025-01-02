@@ -62,7 +62,7 @@ class VisionTransformer(Module):
         self.ln = LayerNorm((embed_dim,))
         self.lm_head = Linear(embed_dim, n_classes, bias)
 
-        self.pos = Buffer(insert_dim(arange(n_patches + 1, dtype=int32), 0))
+        self.pos = Buffer(arange(n_patches + 1, dtype=int32).view((1, -1)))
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

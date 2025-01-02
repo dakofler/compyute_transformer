@@ -1,3 +1,5 @@
+"""training script on tinyshakespeare"""
+
 import time
 
 import compyute as cp
