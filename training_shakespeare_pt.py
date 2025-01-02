@@ -54,19 +54,16 @@ class Transformer(nn.Module):
 class TransformerBlock(nn.Module):
     def __init__(self, embed_dim, mlp_channels, n_heads, mask, dropout, out_scale):
         super().__init__()
-        self.dropout = dropout
-
         self.ln1 = nn.LayerNorm((embed_dim,))
         self.attn = MSA(embed_dim, n_heads, mask, dropout, out_scale)
         self.dropout1 = nn.Dropout(dropout)
-
         self.ln2 = nn.LayerNorm((embed_dim,))
         self.mlp = MLP(embed_dim, mlp_channels, out_scale)
         self.dropout2 = nn.Dropout(dropout)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x = x + F.dropout(self.attn(self.ln1(x)), self.dropout)
-        x = x + F.dropout(self.mlp(self.ln2(x)), self.dropout)
+        x = x + self.dropout1(self.attn(self.ln1(x)))
+        x = x + self.dropout2(self.mlp(self.ln2(x)))
         return x
 
 
