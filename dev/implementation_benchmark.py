@@ -4,10 +4,10 @@ import time
 import compyute as cp
 import requests
 from compyute import nn
+from sdp import get_causal_mask
 from simple_tokenizers import CharacterTokenizer
 
-from transformer.attention_utils import get_causal_mask
-from transformer.experimental.gpt_debug import GPTTransformer
+from transformer import Transformer
 
 
 def main() -> None:
@@ -55,13 +55,15 @@ def main() -> None:
         raise ValueError("Must provide implementation as argument.")
     implementation = sys.argv[1]
 
-    if implementation not in {"batched", "unbatched", "semibatched"}:
+    impl_options = ["parallel", "semiparallel", "sequential"]
+    if implementation not in impl_options:
+        impl_options_str = ", ".join(impl_options)
         raise ValueError(
-            "Invalid implementation argument. Must be one of 'batched', 'unbatched', 'semibatched'."
+            f"Invalid implementation argument. Must be one of {impl_options_str}."
         )
     print(f"Using {implementation} attenttion implementation.")
 
-    model = GPTTransformer(
+    model = Transformer(
         n_embeds=tokenizer.vocab_size,
         embed_dim=embed_dims,
         mlp_channels=4 * embed_dims,

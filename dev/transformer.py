@@ -1,7 +1,7 @@
 """transformer neural network module"""
 
 import math
-from typing import Optional
+from typing import Literal, Optional
 
 from compyute.nn.modules.activations import ReLU
 from compyute.nn.modules.embeddings import Embedding
@@ -14,59 +14,12 @@ from compyute.nn.utils.initializers import init_normal
 from compyute.tensor_ops.creation_ops import arange, empty, zeros
 from compyute.tensor_ops.unary_ops import cos, exp, sin
 from compyute.tensors import Tensor
-
-from .attention import MultiHeadSelfAttention
-
-# post resid layernorm
-# sinusoidal pos encodings
-# dropout after embeddings and resid blocks
-# shared weights of token emb and lm head
+from mha_parallel import ParallelMHA
+from mha_semiparallel import SemiparallelMHA
+from mha_sequential import SequentialMHA
 
 
-class VaswaniTransformer(Module):
-    r"""Docoder-only transformer model following
-    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
-
-    Parameters
-    ----------
-    n_embeds : int
-        Number of embedding vectors.
-    embed_dim : int
-        Number of embedding dimensions.
-    mlp_channels : int
-        Number of channels of the hidden layer in the feed forward block.
-    n_heads : int
-        Number of attention heads.
-    n_blocks : int
-        Number of transformer blocks.
-    max_context_len : int
-        Maximum possible length of the input sequence.
-    mask : Tensor, optional
-        Attention-mask. Defaults to ``None``.
-        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
-    dropout : float, optional
-        Dropout probability. Defaults to ``0.1``.
-    bias : bool, optional
-        Whether to use bias values. Defaults to ``True``.
-    label: str, optional
-        Module label. Defaults to ``None``. If `None`, the class name is used.
-
-
-    .. note::
-        Embeddings are initialized from :math:`\mathcal{N}(0, \sqrt{\frac{1}{C_{in}}})`.
-        Linear layer weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
-
-    .. note::
-        Dropout is applied to the output of each residual block and to attention weights.
-
-    .. note::
-        The weights of the token embedding and the language model head are shared.
-
-    .. note::
-        Normalization is applied before weight layers within
-        residual blocks (pre-weight-normalization).
-    """
+class Transformer(Module):
 
     def __init__(
         self,
@@ -80,6 +33,7 @@ class VaswaniTransformer(Module):
         mask: Optional[Tensor] = None,
         dropout: float = 0.1,
         bias: bool = True,
+        implementation: Literal["parallel", "semiparallel", "sequential"] = "parallel",
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
@@ -97,7 +51,9 @@ class VaswaniTransformer(Module):
 
         # Transformer blocks
         self.blocks = ModuleList(
-            TransformerBlock(embed_dim, mlp_channels, n_heads, mask, dropout, bias)
+            TransformerBlock(
+                embed_dim, mlp_channels, n_heads, mask, dropout, bias, implementation
+            )
             for _ in range(n_blocks)
         )
 
@@ -133,10 +89,19 @@ class TransformerBlock(Module):
         mask: Optional[Tensor],
         dropout: float,
         bias: bool,
+        implementation: Literal["parallel", "semiparallel", "sequential"],
     ) -> None:
         super().__init__()
 
-        self.attn = MultiHeadSelfAttention(in_channels, n_heads, mask, bias=bias)
+        self.attn: Optional[Module] = None
+        match implementation:
+            case "parallel":
+                self.attn = ParallelMHA(in_channels, n_heads, mask, bias=bias)
+            case "semiparallel":
+                self.attn = SemiparallelMHA(in_channels, n_heads, mask, bias=bias)
+            case _:
+                self.attn = SequentialMHA(in_channels, n_heads, mask, bias=bias)
+
         self.dropout1 = Dropout(dropout)
         self.ln1 = LayerNorm((in_channels,))
         self.mlp = MLP(in_channels, mlp_channels, bias)
@@ -184,36 +149,6 @@ class MLP(Module):
 
 
 class PositionalEncoding(Module):
-    r"""Sinusoidal Positional Encoding layer as described by
-    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
-
-    .. math::
-        \begin{array}{ll} \\
-            PE_{(pos, 2i)} = \text{sin}(pos \cdot e^{-2i \frac{log(b)}{E})
-            PE_{(pos, 2i+1)} = \text{cos}(pos \cdot e^{-2i \frac{log(b)}{E})
-        \end{array}
-
-    where :math:`E` is the embedding dimension and :math:`b` is the base.
-
-    Shapes:
-        - Input :math:`(B_1, ... , B_n, S)`
-        - Output :math:`(B_1, ... , B_n, S, E)`
-    where
-        - :math:`B_1, ... , B_n` ... batch axes
-        - :math:`S` ... sequence
-        - :math:`E` ... embedding dimension
-
-    Parameters
-    ----------
-    max_seq_len : int
-        Maximum possible length of the input sequence.
-    embedding_dim : int
-        Embedding vector dimensions.
-    base : float, optional
-        Base for computing the positional encoding. Defaults to ``1e4``.
-    label : str, optional
-        Module label. Defaults to ``None``. If ``None``, the class name is used.
-    """
 
     def __init__(
         self,

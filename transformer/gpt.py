@@ -16,7 +16,7 @@ from compyute.tensor_ops.shape_ops import insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
-from .mha_batched import MultiHeadSelfAttention
+from .attention import MultiHeadSelfAttention
 
 # pre resid layernorm
 # additional ln before lm head

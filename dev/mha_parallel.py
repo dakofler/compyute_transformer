@@ -1,4 +1,4 @@
-"""attention neural network module"""
+"""multi head self attention module where heads are computed in parallel"""
 
 from typing import Optional
 
@@ -7,59 +7,10 @@ from compyute.nn.modules.module import Module
 from compyute.nn.parameter import Buffer
 from compyute.tensor_ops.shape_ops import concat, split
 from compyute.tensors import Tensor
-
-from .attention_funcs import SDPAttentionFunction
-
-
-class MultiHeadSelfAttention(Module):
-    r"""Multi Head Self-Attention as described by
-    `Vaswani et al., 2017 <https://arxiv.org/pdf/1706.03762>`_.
-
-    .. math::
-        \begin{array}{ll} \\
-            Q = xW_Q^T \\
-            K = xW_K^T \\
-            V = xW_V^T \\
-            \text{MultiHeadAttention}(x) = \text{concat}(\text{Attention}(Q_1, K_1, V_1), ..., \text{Attention}(Q_n, K_n, V_n))W_o^T \\
-            \text{Attention}(Q, K, V) = \text{softmax}(\frac{QK^T}{\sqrt{N}}) \cdot V \\
-        \end{array}
-
-    where :math:`N` is the number of attention heads.
-
-    Shapes:
-        - Input :math:`(B, S, C_{in})`
-        - Output :math:`(B, S, C_{in})`
-    where
-        - :math:`B` ... batch dimension
-        - :math:`S` ... sequence
-        - :math:`C_{in}` ... input channels
-
-    Parameters
-    ----------
-    in_channels : int
-        Number of input channels.
-    n_heads : int
-        Number of attention heads.
-    mask : Tensor, optional
-        Attention-mask. Defaults to ``None``.
-        Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
-    dropout : float, optional
-        Dropout probability. Defaults to ``0``.
-    out_scale : float, optional
-        Scale for the output projection. Defaults to ``1.0``.
-    bias : bool, optional
-        Whether to use bias values. Defaults to ``True``.
-    label: str, optional
-        Module label. Defaults to ``None``. If `None`, the class name is used.
+from sdp import SDPAttentionFunction
 
 
-    .. note::
-        All weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
-
-    .. note::
-        Input projections do not use bias.
-    """
+class ParallelMHA(Module):
 
     def __init__(
         self,

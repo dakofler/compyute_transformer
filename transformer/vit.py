@@ -1,4 +1,4 @@
-"""transformer neural network module"""
+"""vision transformer neural network module"""
 
 import math
 from typing import Optional
@@ -12,20 +12,12 @@ from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer, Parameter
 from compyute.nn.utils.initializers import init_normal
-from compyute.random import normal
-from compyute.tensor_ops.creation_ops import arange, empty
+from compyute.tensor_ops.creation_ops import arange, empty, zeros
 from compyute.tensor_ops.shape_ops import broadcast_to, concat, insert_dim
 from compyute.tensors import Tensor
 from compyute.typing import int32
 
-from ..mha_batched import MultiHeadSelfAttention
-
-# pre resid layernorm
-# additional ln before lm head
-# learned pos embeddings
-# no dropout bc large corpus, following karpathy do in attn and post resid
-# shared weights of token emb and lm head
-# scale out proj weights by 1/sqrt(2*layers)
+from .attention import MultiHeadSelfAttention
 
 
 class VisionTransformer(Module):
@@ -56,17 +48,13 @@ class VisionTransformer(Module):
         # Embeddings
         self.patch_emb = PatchEmbedding(in_channels, patch_size, embed_dim)
         self.pos_emb = Embedding(n_patches + 1, embed_dim, "PosEmbedding")
-        std = 1 / math.sqrt(embed_dim)
-        init_normal(self.pos_emb.w, std=std)
-        self.class_emb = Parameter(normal((1, 1, embed_dim)))
-
-        # embedding dropout
+        init_normal(self.pos_emb.w, std=1 / math.sqrt(embed_dim))
+        self.class_emb = Parameter(zeros((1, 1, embed_dim)))
         self.emb_dropout = Dropout(dropout)
 
         # Transformer blocks
-        out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
-            TransformerBlock(embed_dim, mlp_channels, n_heads, out_scale, dropout, bias)
+            TransformerBlock(embed_dim, mlp_channels, n_heads, dropout)
             for _ in range(n_blocks)
         )
 
@@ -101,42 +89,35 @@ class VisionTransformer(Module):
 class TransformerBlock(Module):
 
     def __init__(
-        self,
-        in_channels: int,
-        mlp_channels: int,
-        n_heads: int,
-        out_scale: float,
-        dropout: float,
-        bias: bool,
+        self, in_channels: int, mlp_channels: int, n_heads: int, dropout: float
     ) -> None:
         super().__init__()
 
         self.ln1 = LayerNorm((in_channels,))
-        self.attn = MultiHeadSelfAttention(
-            in_channels, n_heads, None, dropout, out_scale, bias
-        )
+        self.msa = MultiHeadSelfAttention(in_channels, n_heads, None, dropout)
         self.dropout1 = Dropout(dropout)
+
         self.ln2 = LayerNorm((in_channels,))
-        self.mlp = MLP(in_channels, mlp_channels, out_scale, bias)
+        self.mlp = MLP(in_channels, mlp_channels, dropout)
         self.dropout2 = Dropout(dropout)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-        x = x + self.dropout1(self.attn(self.ln1(x)))
+        x = x + self.dropout1(self.msa(self.ln1(x)))
         x = x + self.dropout2(self.mlp(self.ln2(x)))
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dy = dy + self.ln2.backward(self.mlp.backward(self.dropout2.backward(dy)))
-        dy = dy + self.ln1.backward(self.attn.backward(self.dropout1.backward(dy)))
+        dy = dy + self.ln1.backward(self.msa.backward(self.dropout1.backward(dy)))
         return dy
 
 
 class MLP(Module):
 
     def __init__(
-        self, in_channels: int, h_channels: int, dropout: float, bias: bool
+        self, in_channels: int, h_channels: int, dropout: float, bias: bool = True
     ) -> None:
         super().__init__()
         self.up_proj = Linear(in_channels, h_channels, bias)
@@ -174,13 +155,8 @@ class PatchEmbedding(Module):
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
-
-        # Create embeddings (B, C, H, W) -> (B, E, P, P)
         x = self.conv(x)
-
-        # Flatten patches and transpose (B, E, P, P) -> (B, E, P**2) -> (B, P**2, E)
         y = x.view((*x.shape[:-2], -1)).transpose(1, 2).to_contiguous()
-
         self.function_ctx.add(x.shape)
         return y
 

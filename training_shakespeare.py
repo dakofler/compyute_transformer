@@ -21,11 +21,12 @@ def main() -> None:
     n_heads = 6
     n_blocks = 6
     batch_size = 64
+    dropout = 0.5  # 6: 0.2
 
     # training parameters
     step = 1
     max_steps = 10000
-    label = "transformer_shakespeare_6"
+    label = "transformer_shakespeare_7"
     val_interval = 250
     checkpoint_interal = 500
 
@@ -72,7 +73,7 @@ def main() -> None:
         n_blocks=n_blocks,
         max_context_len=context_length,
         mask=mask,
-        dropout=0.2,
+        dropout=dropout,
     )
     model.to_device(device)
 
