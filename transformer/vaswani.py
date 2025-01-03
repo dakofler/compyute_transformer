@@ -79,7 +79,6 @@ class VaswaniTransformer(Module):
         pos_enc_base: float = 10000.0,
         mask: Optional[Tensor] = None,
         dropout: float = 0.1,
-        bias: bool = True,
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
@@ -97,12 +96,12 @@ class VaswaniTransformer(Module):
 
         # Transformer blocks
         self.blocks = ModuleList(
-            TransformerBlock(embed_dim, mlp_channels, n_heads, mask, dropout, bias)
+            TransformerBlock(embed_dim, mlp_channels, n_heads, mask, dropout)
             for _ in range(n_blocks)
         )
 
         # Language model head
-        self.lm_head = Linear(embed_dim, n_embeds, bias)
+        self.lm_head = Linear(embed_dim, n_embeds)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
     @Module.register_forward
@@ -132,14 +131,13 @@ class TransformerBlock(Module):
         n_heads: int,
         mask: Optional[Tensor],
         dropout: float,
-        bias: bool,
     ) -> None:
         super().__init__()
 
-        self.attn = MultiHeadSelfAttention(in_channels, n_heads, mask, bias=bias)
+        self.attn = MultiHeadSelfAttention(in_channels, n_heads, mask)
         self.dropout1 = Dropout(dropout)
         self.ln1 = LayerNorm((in_channels,))
-        self.mlp = MLP(in_channels, mlp_channels, bias)
+        self.mlp = MLP(in_channels, mlp_channels)
         self.dropout2 = Dropout(dropout)
         self.ln2 = LayerNorm((in_channels,))
 
@@ -160,13 +158,11 @@ class TransformerBlock(Module):
 
 class MLP(Module):
 
-    def __init__(
-        self, in_channels: int, h_channels: int, bias: bool, label: Optional[str] = None
-    ) -> None:
-        super().__init__(label)
-        self.up_proj = Linear(in_channels, h_channels, bias)
+    def __init__(self, in_channels: int, h_channels: int) -> None:
+        super().__init__()
+        self.up_proj = Linear(in_channels, h_channels)
         self.act = ReLU()
-        self.down_proj = Linear(h_channels, in_channels, bias)
+        self.down_proj = Linear(h_channels, in_channels)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

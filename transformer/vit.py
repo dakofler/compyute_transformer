@@ -36,7 +36,6 @@ class VisionTransformer(Module):
         n_heads: int,
         n_blocks: int,
         dropout: float = 0.0,
-        bias: bool = True,
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
@@ -60,7 +59,7 @@ class VisionTransformer(Module):
 
         # Model head
         self.ln = LayerNorm((embed_dim,))
-        self.lm_head = Linear(embed_dim, n_classes, bias)
+        self.head = Linear(embed_dim, n_classes)
 
         self.pos = Buffer(arange(n_patches + 1, dtype=int32).view((1, -1)))
 
@@ -72,11 +71,11 @@ class VisionTransformer(Module):
         x = self.emb_dropout(x)
         for block in self.blocks:
             x = block(x)
-        return self.lm_head(self.ln(x))
+        return self.head(self.ln(x))
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = self.ln.backward(self.lm_head.backward(dy))
+        dy = self.ln.backward(self.head.backward(dy))
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         dy = self.emb_dropout.backward(dy)
@@ -116,14 +115,12 @@ class TransformerBlock(Module):
 
 class MLP(Module):
 
-    def __init__(
-        self, in_channels: int, h_channels: int, dropout: float, bias: bool = True
-    ) -> None:
+    def __init__(self, in_channels: int, h_channels: int, dropout: float) -> None:
         super().__init__()
-        self.up_proj = Linear(in_channels, h_channels, bias)
+        self.up_proj = Linear(in_channels, h_channels)
         self.act = GELU()
         self.dropout = Dropout(dropout)
-        self.down_proj = Linear(h_channels, in_channels, bias)
+        self.down_proj = Linear(h_channels, in_channels)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

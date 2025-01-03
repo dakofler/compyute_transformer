@@ -1,4 +1,4 @@
-"""attention functions"""
+"""attention modules"""
 
 import math
 from typing import Optional
@@ -46,19 +46,18 @@ class MultiHeadSelfAttention(Module):
     dropout : float, optional
         Dropout probability. Defaults to ``0``.
     out_scale : float, optional
-        Scale for the output projection. Defaults to ``1.0``.
+        Scaling factor for the output projection. Defaults to ``1.0``.
     bias : bool, optional
-        Whether to use bias values. Defaults to ``True``.
+        Whether to use bias values in the input projection. Defaults to ``False``.
+    bias : bool, optional
+        Whether to use bias values in the output projection. Defaults to ``True``.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
 
 
     .. note::
-        All weights are initialized from :math:`\mathcal{U}(-k, k)`, where
-        :math:`k = \sqrt{\frac{1}{C_{in}}}`. Biases are initialized as zeros.
-
-    .. note::
-        Input projections do not use bias.
+        Weights and biases are initialized from :math:`\mathcal{U}(-k, k)`, where
+        :math:`k = \sqrt{\frac{1}{C_{in}}}`.
     """
 
     def __init__(
@@ -68,6 +67,7 @@ class MultiHeadSelfAttention(Module):
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
         out_scale: float = 1.0,
+        attn_bias: bool = False,
         bias: bool = True,
         label: Optional[str] = None,
     ) -> None:
@@ -83,7 +83,9 @@ class MultiHeadSelfAttention(Module):
         # init parameters
         k = 1.0 / math.sqrt(in_channels)
         self.w_i = Parameter(uniform((3 * in_channels, in_channels), -k, k))
-        self.b_i = None if not bias else Parameter(uniform((3 * in_channels,), -k, k))
+        self.b_i = (
+            None if not attn_bias else Parameter(uniform((3 * in_channels,), -k, k))
+        )
         self.w_o = Parameter(uniform((in_channels, in_channels), -k, k))
         self.w_o *= out_scale
         self.b_o = None if not bias else Parameter(uniform((in_channels,), -k, k))
@@ -101,7 +103,7 @@ class MultiHeadSelfAttention(Module):
             self.n_heads,
             self.mask,
             dropout,
-            False,
+            self.retain_values,
         )
         return y
 

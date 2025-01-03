@@ -81,7 +81,6 @@ class GPTTransformer(Module):
         max_context_len: int,
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
-        bias: bool = True,
         label: Optional[str] = None,
     ) -> None:
         super().__init__(label)
@@ -102,14 +101,13 @@ class GPTTransformer(Module):
                 out_scale,
                 mask,
                 dropout,
-                bias,
             )
             for _ in range(n_blocks)
         )
 
         # Language model head
         self.ln = LayerNorm((embed_dim,))
-        self.lm_head = Linear(embed_dim, n_embeds, bias)
+        self.lm_head = Linear(embed_dim, n_embeds, bias=False)
         self.lm_head.w = self.token_emb.w  # weight sharing
 
         self.pos = Buffer(arange(max_context_len, dtype=int32).view((1, -1)))
@@ -142,18 +140,17 @@ class TransformerBlock(Module):
         out_scale: float,
         mask: Optional[Tensor],
         dropout: float,
-        bias: bool,
     ) -> None:
         super().__init__()
 
         self.ln1 = LayerNorm((embed_dim,))
         self.attn = MultiHeadSelfAttention(
-            embed_dim, n_heads, mask, dropout, out_scale, bias
+            embed_dim, n_heads, mask, dropout, out_scale, True
         )
         self.dropout1 = Dropout(dropout)
 
         self.ln2 = LayerNorm((embed_dim,))
-        self.mlp = MLP(embed_dim, mlp_channels, out_scale, bias)
+        self.mlp = MLP(embed_dim, mlp_channels, out_scale)
         self.dropout2 = Dropout(dropout)
 
     @Module.register_forward
@@ -171,13 +168,11 @@ class TransformerBlock(Module):
 
 class MLP(Module):
 
-    def __init__(
-        self, embed_dim: int, mlp_channels: int, out_scale: float, bias: bool
-    ) -> None:
+    def __init__(self, embed_dim: int, mlp_channels: int, out_scale: float) -> None:
         super().__init__()
-        self.up_proj = Linear(embed_dim, mlp_channels, bias)
+        self.up_proj = Linear(embed_dim, mlp_channels)
         self.act = GELU()
-        self.down_proj = Linear(mlp_channels, embed_dim, bias)
+        self.down_proj = Linear(mlp_channels, embed_dim)
         self.down_proj.w *= out_scale
 
     @Module.register_forward

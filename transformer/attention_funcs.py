@@ -163,7 +163,7 @@ class SDPAttentionFunction(Function):
         *_, context_len, head_size = q.shape
 
         attn_weights = q @ k.T / math.sqrt(head_size)
-        if mask is not None:
+        if context_len > 1 and mask is not None:
             attn_weights += mask[:context_len, :context_len]
         attn_weights = SoftmaxFunction.forward(ctx, attn_weights, dim=-1)
         attn_weights = DropoutFunction.forward(ctx, attn_weights, dropout, dropout > 0)

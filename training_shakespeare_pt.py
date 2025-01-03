@@ -38,7 +38,7 @@ class Transformer(nn.Module):
             for _ in range(n_blocks)
         )
         self.ln = nn.LayerNorm((embed_dim,))
-        self.head = nn.Linear(embed_dim, n_embeds)
+        self.head = nn.Linear(embed_dim, n_embeds, bias=False)
         self.head.weight = self.token_emb.weight
 
         self.pos = nn.Buffer(torch.arange(max_context_len).view(1, -1))
@@ -90,14 +90,7 @@ class MSA(nn.Module):
         q = q.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
-
-        attn_w = q @ k.transpose(2, 3) / math.sqrt(self.head_dim)
-        if self.mask is not None:
-            attn_w += self.mask[:N, :N]
-        attn_w = F.softmax(attn_w, dim=-1)
-        attn_w = F.dropout(attn_w, self.dropout, self.training)
-        y = attn_w @ v
-
+        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
         y = y.transpose(1, 2).contiguous().flatten(2)
         y = self.out_proj(y)
         return y
