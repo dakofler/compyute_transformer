@@ -49,8 +49,6 @@ class GPTTransformer(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout : float, optional
         Dropout probability. Defaults to ``0.0``.
-    bias : bool, optional
-        Whether to use bias values. Defaults to ``True``.
     label: str, optional
         Module label. Defaults to ``None``. If `None`, the class name is used.
 
