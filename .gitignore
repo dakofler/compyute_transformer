@@ -3,7 +3,7 @@ test.ipynb
 *.html
 data/*
 runs/*
-presentation.ipynb
+presentation/*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

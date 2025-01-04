@@ -10,7 +10,7 @@ from compyute.nn.modules.module import Module, ModuleList
 from compyute.nn.modules.normalizations import LayerNorm
 from compyute.nn.modules.regularizations import Dropout
 from compyute.nn.parameter import Buffer
-from compyute.nn.utils.initializers import init_normal
+from compyute.nn.utils.initializers import init_normal, init_uniform
 from compyute.tensor_ops.creation_ops import arange, empty
 from compyute.tensors import Tensor
 from compyute.typing import int32
@@ -92,21 +92,14 @@ class GPTTransformer(Module):
         # Transformer blocks
         out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = ModuleList(
-            TransformerBlock(
-                embed_dim,
-                mlp_channels,
-                n_heads,
-                out_scale,
-                mask,
-                dropout,
-            )
+            TransformerBlock(embed_dim, mlp_channels, n_heads, out_scale, mask, dropout)
             for _ in range(n_blocks)
         )
 
         # Language model head
         self.ln = LayerNorm((embed_dim,))
-        self.lm_head = Linear(embed_dim, n_embeds, bias=False)
-        self.lm_head.w = self.token_emb.w  # weight sharing
+        self.head = Linear(embed_dim, n_embeds, bias=False)
+        self.head.w = self.token_emb.w  # weight sharing
 
         self.pos = Buffer(arange(max_context_len, dtype=int32).view((1, -1)))
 
@@ -115,12 +108,12 @@ class GPTTransformer(Module):
         x = self.token_emb(x) + self.pos_emb(self.pos[:, : x.shape[-1]])
         for block in self.blocks:
             x = block(x)
-        x = self.lm_head(self.ln(x))
+        x = self.head(self.ln(x))
         return x
 
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
-        dy = self.ln.backward(self.lm_head.backward(dy))
+        dy = self.ln.backward(self.head.backward(dy))
         for module in reversed(self.blocks):
             dy = module.backward(dy)
         self.token_emb.backward(dy)
@@ -142,14 +135,18 @@ class TransformerBlock(Module):
         super().__init__()
 
         self.ln1 = LayerNorm((embed_dim,))
-        self.attn = MultiHeadSelfAttention(
-            embed_dim, n_heads, mask, dropout, out_scale, True
-        )
+        self.attn = MultiHeadSelfAttention(embed_dim, n_heads, mask, dropout, True)
         self.dropout1 = Dropout(dropout)
 
+        std = out_scale / math.sqrt(embed_dim)
+        init_uniform(self.attn.w_o, low=-std, high=std)
+
         self.ln2 = LayerNorm((embed_dim,))
-        self.mlp = MLP(embed_dim, mlp_channels, out_scale)
+        self.mlp = MLP(embed_dim, mlp_channels)
         self.dropout2 = Dropout(dropout)
+
+        std = out_scale / math.sqrt(mlp_channels)
+        init_uniform(self.mlp.down_proj.w, low=-std, high=std)
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:
@@ -166,12 +163,11 @@ class TransformerBlock(Module):
 
 class MLP(Module):
 
-    def __init__(self, embed_dim: int, mlp_channels: int, out_scale: float) -> None:
+    def __init__(self, embed_dim: int, mlp_channels: int) -> None:
         super().__init__()
         self.up_proj = Linear(embed_dim, mlp_channels)
         self.act = GELU()
         self.down_proj = Linear(mlp_channels, embed_dim)
-        self.down_proj.w *= out_scale
 
     @Module.register_forward
     def forward(self, x: Tensor) -> Tensor:

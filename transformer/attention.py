@@ -45,8 +45,6 @@ class MultiHeadSelfAttention(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout : float, optional
         Dropout probability. Defaults to ``0``.
-    out_scale : float, optional
-        Scaling factor for the output projection. Defaults to ``1.0``.
     bias : bool, optional
         Whether to use bias values in the input projection. Defaults to ``False``.
     bias : bool, optional
@@ -66,7 +64,6 @@ class MultiHeadSelfAttention(Module):
         n_heads: int,
         mask: Optional[Tensor] = None,
         dropout: float = 0.0,
-        out_scale: float = 1.0,
         attn_bias: bool = False,
         bias: bool = True,
         label: Optional[str] = None,
@@ -87,7 +84,6 @@ class MultiHeadSelfAttention(Module):
             None if not attn_bias else Parameter(uniform((3 * in_channels,), -k, k))
         )
         self.w_o = Parameter(uniform((in_channels, in_channels), -k, k))
-        self.w_o *= out_scale
         self.b_o = None if not bias else Parameter(uniform((in_channels,), -k, k))
 
     @Module.register_forward

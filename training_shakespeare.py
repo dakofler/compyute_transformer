@@ -25,8 +25,8 @@ def main() -> None:
 
     # training parameters
     step = 1
-    max_steps = 10000
-    label = "transformer_shakespeare_7"
+    max_steps = 2500
+    label = "transformer_shakespeare_8"
     val_interval = 250
     checkpoint_interal = 500
 

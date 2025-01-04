@@ -21,25 +21,28 @@ class Transformer(nn.Module):
         n_heads,
         n_blocks,
         max_context_len,
-        mask=None,
-        dropout=0.0,
+        dropout,
     ):
         super().__init__()
 
+        # Embeddings
         self.token_emb = nn.Embedding(n_embeds, embed_dim)
         self.pos_emb = nn.Embedding(max_context_len, embed_dim)
         std = 1 / math.sqrt(embed_dim)
-        nn.init.normal_(self.token_emb.weight, std)
-        nn.init.normal_(self.pos_emb.weight, std)
+        nn.init.normal_(self.token_emb.weight, std=std)
+        nn.init.normal_(self.pos_emb.weight, std=std)
 
+        # Transformer blocks
         out_scale = 1 / math.sqrt(2 * n_blocks)
         self.blocks = nn.ModuleList(
-            TransformerBlock(embed_dim, mlp_channels, n_heads, mask, dropout, out_scale)
+            TransformerBlock(embed_dim, mlp_channels, n_heads, dropout, out_scale)
             for _ in range(n_blocks)
         )
+
+        # Language model head
         self.ln = nn.LayerNorm((embed_dim,))
         self.head = nn.Linear(embed_dim, n_embeds, bias=False)
-        self.head.weight = self.token_emb.weight
+        self.head.weight = self.token_emb.weight  # weight sharing
 
         self.pos = nn.Buffer(torch.arange(max_context_len).view(1, -1))
 
@@ -52,14 +55,22 @@ class Transformer(nn.Module):
 
 
 class TransformerBlock(nn.Module):
-    def __init__(self, embed_dim, mlp_channels, n_heads, mask, dropout, out_scale):
+    def __init__(self, embed_dim, mlp_channels, n_heads, dropout, out_scale):
         super().__init__()
+
         self.ln1 = nn.LayerNorm((embed_dim,))
-        self.attn = MSA(embed_dim, n_heads, mask, dropout, out_scale)
+        self.attn = MSA(embed_dim, n_heads, dropout)
         self.dropout1 = nn.Dropout(dropout)
+
+        std = out_scale / math.sqrt(embed_dim)
+        torch.nn.init.uniform_(self.attn.out_proj.weight, -std, std)
+
         self.ln2 = nn.LayerNorm((embed_dim,))
-        self.mlp = MLP(embed_dim, mlp_channels, out_scale)
+        self.mlp = MLP(embed_dim, mlp_channels)
         self.dropout2 = nn.Dropout(dropout)
+
+        std = out_scale / math.sqrt(mlp_channels)
+        torch.nn.init.uniform_(self.mlp.down.weight, -std, std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = x + self.dropout1(self.attn(self.ln1(x)))
@@ -70,17 +81,14 @@ class TransformerBlock(nn.Module):
 class MSA(nn.Module):
     """Multi-head self-attention module"""
 
-    def __init__(self, embed_dim, num_heads, mask, dropout, out_scale) -> None:
+    def __init__(self, embed_dim, num_heads, dropout) -> None:
         super().__init__()
         self.num_heads = num_heads
         self.head_dim = embed_dim // num_heads
         self.dropout = dropout
-        self.mask = nn.Buffer(mask)
 
         self.in_proj = nn.Linear(embed_dim, embed_dim * 3)
         self.out_proj = nn.Linear(embed_dim, embed_dim)
-        std = out_scale / math.sqrt(embed_dim)
-        torch.nn.init.uniform_(self.out_proj.weight, -std, std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         B, N, D = x.shape
@@ -90,19 +98,19 @@ class MSA(nn.Module):
         q = q.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         k = k.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
         v = v.view(B, N, self.num_heads, self.head_dim).transpose(1, 2)
-        y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+
+        dropout = self.dropout if self.training else 0.0
+        y = F.scaled_dot_product_attention(q, k, v, dropout_p=dropout, is_causal=True)
         y = y.transpose(1, 2).contiguous().flatten(2)
         y = self.out_proj(y)
         return y
 
 
 class MLP(nn.Module):
-    def __init__(self, embed_dim, mlp_channels, out_scale):
+    def __init__(self, embed_dim, mlp_channels):
         super().__init__()
         self.up = nn.Linear(embed_dim, mlp_channels)
         self.down = nn.Linear(mlp_channels, embed_dim)
-        std = out_scale / math.sqrt(mlp_channels)
-        torch.nn.init.uniform_(self.down.weight, -std, std)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.down(F.gelu(self.up(x)))
@@ -122,8 +130,8 @@ def main() -> None:
 
     # training parameters
     step = 1
-    max_steps = 10000
-    label = "transformer_shakespeare_pt_7"
+    max_steps = 2500
+    label = "transformer_shakespeare_pt_8"
     val_interval = 250
 
     # load data
@@ -159,11 +167,6 @@ def main() -> None:
     y_val = y.long()[n:]
 
     # create model
-    mask = torch.triu(
-        torch.full((1, context_length, context_length), fill_value=-float("inf")),
-        diagonal=1,
-    )
-
     model = Transformer(
         n_embeds=tokenizer.vocab_size,
         embed_dim=embed_dims,
@@ -171,7 +174,6 @@ def main() -> None:
         n_heads=n_heads,
         n_blocks=n_blocks,
         max_context_len=context_length,
-        mask=mask,
         dropout=dropout,
     ).to(device)
 
