@@ -90,7 +90,7 @@ class MultiHeadSelfAttention(Module):
     def forward(self, x: Tensor) -> Tensor:
         dropout = self.dropout if self._is_training else 0
         y, self.attn_weights = MultiHeadSelfAttentionFunction.forward(
-            self.function_ctx,
+            self.ctx,
             x,
             self.w_i,
             self.b_i,
@@ -106,10 +106,9 @@ class MultiHeadSelfAttention(Module):
     @Module.register_backward
     def backward(self, dy: Tensor) -> Tensor:
         dx, dw_i, db_i, dw_o, db_o = MultiHeadSelfAttentionFunction.backward(
-            self.function_ctx, dy
+            self.ctx, dy
         )
-        self.update_parameter_grad(self.w_o, dw_o)
-        self.update_parameter_grad(self.b_o, db_o)
-        self.update_parameter_grad(self.w_i, dw_i)
-        self.update_parameter_grad(self.b_i, db_i)
+        self.apply_grads(
+            (self.w_i, self.b_i, self.w_o, self.b_o), (dw_i, db_i, dw_o, db_o)
+        )
         return dx

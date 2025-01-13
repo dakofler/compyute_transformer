@@ -39,7 +39,6 @@ def main() -> None:
     chars = sorted(list(set(data)))
     tokenizer = CharacterTokenizer()
     tokenizer.vocab = {i: c for i, c in enumerate(chars)}
-    tokenizer.ivocab = {c: i for i, c in enumerate(chars)}
 
     # prepare data
     data_enc = cp.tensor(tokenizer.encode(data), dtype=cp.int32)

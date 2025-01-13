@@ -143,7 +143,6 @@ def main() -> None:
     chars = sorted(list(set(data)))
     tokenizer = CharacterTokenizer()
     tokenizer.vocab = {i: c for i, c in enumerate(chars)}
-    tokenizer.ivocab = {c: i for i, c in enumerate(chars)}
 
     # prepare data
     data_enc = torch.tensor(tokenizer.encode(data), dtype=torch.int32)
