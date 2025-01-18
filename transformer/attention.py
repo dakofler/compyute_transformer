@@ -45,7 +45,7 @@ class MultiHeadSelfAttention(Module):
         Must be a zeros-tensor with values of ```-inf`` indicating elements to be masked out.
     dropout : float, optional
         Dropout probability. Defaults to ``0``.
-    bias : bool, optional
+    attn_bias : bool, optional
         Whether to use bias values in the input projection. Defaults to ``False``.
     bias : bool, optional
         Whether to use bias values in the output projection. Defaults to ``True``.
